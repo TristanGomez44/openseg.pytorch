@@ -6,7 +6,7 @@
 ## Copyright (c) 2020
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 from __future__ import absolute_import
@@ -25,6 +25,59 @@ import torch.backends.cudnn as cudnn
 
 from lib.utils.tools.logger import Logger as Log
 from lib.utils.tools.configer import Configer
+import optuna
+import gc
+import sqlite3
+
+def run(configer,trial):
+
+    if configer.get('phase') == 'train':
+        configer.update(["train","batch_size"],trial.suggest_int("batch_size",1,32,log=True))
+        configer.update(["lr","base_lr"],trial.suggest_float("base_lr",1e-5, 1e-2, log=True))
+        configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
+        #configer.get("lr","step")["gamma"] = trial.suggest_float("gamma",0.05,0.25,step=0.05)
+        #configer.get("lr","step")["step_size"] = trial.suggest_int("step_size",50,200,log=True)
+        configer.update(["lr","is_warm"],trial.suggest_categorical("is_warm",[True,False]))
+        configer.update(["optim","optim_method"],trial.suggest_categorical("optim_method", ["sgd","adam"]))
+
+        if configer.get("optim","optim_method") == "sgd":
+            #configer.get("optim","sgd")["momentum"] = trial.suggest_float("momentum",0.5, 0.99, log=True)
+            #configer.get("optim","sgd")["nesterov"] = trial.suggest_categorical("nesterov", [True,False])
+            configer.get("optim","sgd")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
+        else:
+            #configer.get("optim","adam")["betas"][0] = trial.suggest_float("adam_betas_0",0.7, 0.9, step=0.1)
+            #configer.get("optim","adam")["betas"][0] = trial.suggest_float("adam_betas_1",0.8, 0.999, log=True)
+            configer.get("optim","adam")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
+
+        configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, log=True)
+        configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, log=True)
+
+    configer.add(["trial_nb"],trial.number)
+
+    model = None
+    if configer.get('method') == 'fcn_segmentor':
+        if configer.get('phase') == 'train':
+            from segmentor.trainer import Trainer
+            model = Trainer(configer)
+        elif configer.get('phase') == 'test':
+            from segmentor.tester import Tester
+            model = Tester(configer)
+        elif configer.get('phase') == 'test_offset':
+            from segmentor.tester_offset import Tester
+            model = Tester(configer)
+    else:
+        Log.error('Method: {} is not valid.'.format(configer.get('task')))
+        exit(1)
+
+    if configer.get('phase') == 'train':
+        miou = model.train(trial)
+        return miou
+
+    elif configer.get('phase').startswith('test') and configer.get('network', 'resume') is not None:
+        model.test()
+    else:
+        Log.error('Phase: {} is not valid.'.format(configer.get('phase')))
+        exit(1)
 
 
 def str2bool(v):
@@ -170,6 +223,12 @@ if __name__ == "__main__":
     parser.add_argument('--distributed', action='store_true', dest='distributed', help='Use multi-processing training.')
     parser.add_argument('--use_ground_truth', action='store_true', dest='use_ground_truth', help='Use ground truth for training.')
 
+    parser.add_argument('--exp_id', type=str,default="default")
+    parser.add_argument('--max_batch_size', type=int,default=20)
+    parser.add_argument('--optuna_trial_nb', type=int,default=25)
+
+    parser.add_argument('--val_on_test', type=str2bool,default=True)
+
     parser.add_argument('REMAIN', nargs='*')
 
     args_parser = parser.parse_args()
@@ -207,25 +266,42 @@ if __name__ == "__main__":
              log_format=configer.get('logging', 'log_format'),
              rewrite=configer.get('logging', 'rewrite'))
 
-    model = None
-    if configer.get('method') == 'fcn_segmentor':
-        if configer.get('phase') == 'train':
-            from segmentor.trainer import Trainer
-            model = Trainer(configer)
-        elif configer.get('phase') == 'test':
-            from segmentor.tester import Tester 
-            model = Tester(configer)    
-        elif configer.get('phase') == 'test_offset':
-            from segmentor.tester_offset import Tester
-            model = Tester(configer)
-    else:
-        Log.error('Method: {} is not valid.'.format(configer.get('task')))
-        exit(1)
+    def objective(trial):
+        return run(configer,trial=trial)
 
-    if configer.get('phase') == 'train':
-        model.train()
-    elif configer.get('phase').startswith('test') and configer.get('network', 'resume') is not None:
-        model.test()
-    else:
-        Log.error('Phase: {} is not valid.'.format(configer.get('phase')))
-        exit(1)
+    if not os.path.exists("results"):
+        os.makedirs("results")
+    if not os.path.exists("results/{}".format(configer.get("exp_id"))):
+        os.makedirs("results/{}".format(configer.get("exp_id")))
+
+    study = optuna.create_study(direction="maximize",\
+                                storage="sqlite:///results/{}/{}_hypSearch.db".format(configer.get("exp_id"),configer.get("checkpoints","checkpoints_name")), \
+                                study_name=configer.get("checkpoints","checkpoints_name"),load_if_exists=True)
+
+    con = sqlite3.connect("results/{}/{}_hypSearch.db".format(configer.get("exp_id"),configer.get("checkpoints","checkpoints_name")))
+    curr = con.cursor()
+
+    failedTrials = 0
+    for elem in curr.execute('SELECT trial_id,value FROM trials WHERE study_id == 1').fetchall():
+        if elem[1] is None:
+            failedTrials += 1
+
+    trialsAlreadyDone = len(curr.execute('SELECT trial_id,value FROM trials WHERE study_id == 1').fetchall())
+
+    if trialsAlreadyDone-failedTrials < configer.get("optuna_trial_nb"):
+
+        studyDone = False
+        while not studyDone:
+            try:
+                print("N trials left",configer.get("optuna_trial_nb")-trialsAlreadyDone+failedTrials)
+                study.optimize(objective,n_trials=configer.get("optuna_trial_nb")-trialsAlreadyDone+failedTrials)
+                studyDone = True
+            except RuntimeError as e:
+                print("------- Max batch size was {} -------".format(configer.get("max_batch_size")))
+                if str(e).find("CUDA out of memory.") != -1:
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    old_max_bs = configer.get("max_batch_size")
+                    configer.update(["max_batch_size"],old_max_bs-5)
+                else:
+                    raise RuntimeError(e)

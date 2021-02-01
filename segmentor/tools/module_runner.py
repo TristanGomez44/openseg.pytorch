@@ -141,7 +141,7 @@ class ModuleRunner(object):
                                    'whose dimensions in the checkpoint are {}.'
                                    .format(name, own_state[name].size(),
                                            param.size()))
-                
+
         missing_keys = set(own_state.keys()) - set(state_dict.keys())
 
         err_msg = []
@@ -177,22 +177,24 @@ class ModuleRunner(object):
 
         latest_name = '{}_latest.pth'.format(self.configer.get('checkpoints', 'checkpoints_name'))
         torch.save(state, os.path.join(checkpoints_dir, latest_name))
+
+        checkpoints_name = self.configer.get('checkpoints', 'checkpoints_name') + "_trial{}".format(self.configer.get("trial_nb"))
         if save_mode == 'performance':
             if self.configer.get('performance') > self.configer.get('max_performance'):
-                latest_name = '{}_max_performance.pth'.format(self.configer.get('checkpoints', 'checkpoints_name'))
+                latest_name = '{}_max_performance.pth'.format(checkpoints_name)
                 torch.save(state, os.path.join(checkpoints_dir, latest_name))
                 self.configer.update(['max_performance'], self.configer.get('performance'))
 
         elif save_mode == 'val_loss':
             if self.configer.get('val_loss') < self.configer.get('min_val_loss'):
-                latest_name = '{}_min_loss.pth'.format(self.configer.get('checkpoints', 'checkpoints_name'))
+                latest_name = '{}_min_loss.pth'.format(checkpoints_name)
                 torch.save(state, os.path.join(checkpoints_dir, latest_name))
                 self.configer.update(['min_val_loss'], self.configer.get('val_loss'))
 
         elif save_mode == 'iters':
             if self.configer.get('iters') - self.configer.get('last_iters') >= \
                     self.configer.get('checkpoints', 'save_iters'):
-                latest_name = '{}_iters{}.pth'.format(self.configer.get('checkpoints', 'checkpoints_name'),
+                latest_name = '{}_iters{}.pth'.format(checkpoints_name,
                                                  self.configer.get('iters'))
                 torch.save(state, os.path.join(checkpoints_dir, latest_name))
                 self.configer.update(['last_iters'], self.configer.get('iters'))
@@ -200,7 +202,7 @@ class ModuleRunner(object):
         elif save_mode == 'epoch':
             if self.configer.get('epoch') - self.configer.get('last_epoch') >= \
                     self.configer.get('checkpoints', 'save_epoch'):
-                latest_name = '{}_epoch{}.pth'.format(self.configer.get('checkpoints', 'checkpoints_name'),
+                latest_name = '{}_epoch{}.pth'.format(checkpoints_name,
                                                  self.configer.get('epoch'))
                 torch.save(state, os.path.join(checkpoints_dir, latest_name))
                 self.configer.update(['last_epoch'], self.configer.get('epoch'))
@@ -271,4 +273,3 @@ class ModuleRunner(object):
                 base_lr_list = scheduler.get_lr()
                 for backbone_index in backbone_list:
                     optimizer.param_groups[backbone_index]['lr'] = base_lr_list[backbone_index] * (lr_ratio ** 4)
-

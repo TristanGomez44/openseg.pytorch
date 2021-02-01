@@ -5,7 +5,7 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -58,7 +58,7 @@ class Trainer(object):
         self.data_loader = DataLoader(configer)
         self.optim_scheduler = OptimScheduler(configer)
         self.data_helper = DataHelper(configer, self)
-        self.evaluator = get_evaluator(configer, self)        
+        self.evaluator = get_evaluator(configer, self)
 
         self.seg_net = None
         self.train_loader = None
@@ -83,10 +83,10 @@ class Trainer(object):
         self.optimizer, self.scheduler = self.optim_scheduler.init_optimizer(params_group)
 
         self.train_loader = self.data_loader.get_trainloader()
-        self.val_loader = self.data_loader.get_valloader()
+        self.val_loader = self.data_loader.get_valloader("test" if self.configer.get("val_on_test") else "val")
         self.pixel_loss = self.loss_manager.get_seg_loss()
         if is_distributed():
-            self.pixel_loss = self.module_runner.to_device(self.pixel_loss)        
+            self.pixel_loss = self.module_runner.to_device(self.pixel_loss)
 
     @staticmethod
     def group_weight(module):
@@ -157,7 +157,8 @@ class Trainer(object):
             self.data_time.update(time.time() - start_time)
 
             foward_start_time = time.time()
-            outputs = self.seg_net(*inputs)
+            with torch.autograd.detect_anomaly():
+                outputs = self.seg_net(*inputs)
             self.foward_time.update(time.time() - foward_start_time)
 
             loss_start_time = time.time()
@@ -165,7 +166,7 @@ class Trainer(object):
                 import torch.distributed as dist
                 def reduce_tensor(inp):
                     """
-                    Reduce the loss from all processes so that 
+                    Reduce the loss from all processes so that
                     process with rank 0 has the averaged results.
                     """
                     world_size = get_world_size()
@@ -230,10 +231,10 @@ class Trainer(object):
             # Check to val the current model.
             # if self.configer.get('epoch') % self.configer.get('solver', 'test_interval') == 0:
             if self.configer.get('iters') % self.configer.get('solver', 'test_interval') == 0:
-                self.__val()
+                miou = self.__val()
 
         self.configer.plus_one('epoch')
-
+        return miou
 
     def __val(self, data_loader=None):
         """
@@ -257,7 +258,7 @@ class Trainer(object):
             with torch.no_grad():
                 if self.configer.get('dataset') == 'lip':
                     inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
-                    outputs = self.seg_net(inputs)        
+                    outputs = self.seg_net(inputs)
                     outputs_ = self.module_runner.gather(outputs)
                     if isinstance(outputs_, (list, tuple)):
                         outputs_ = outputs_[-1]
@@ -284,13 +285,13 @@ class Trainer(object):
                         if isinstance(outputs_i, torch.Tensor):
                             outputs_i = [outputs_i]
                         self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
-                            
+
                 else:
                     outputs = self.seg_net(*inputs)
 
                     try:
                         loss = self.pixel_loss(
-                            outputs, targets, 
+                            outputs, targets,
                             gathered=self.configer.get('network', 'gathered')
                         )
                     except AssertionError as e:
@@ -306,7 +307,7 @@ class Trainer(object):
             start_time = time.time()
 
         self.evaluator.update_performance()
-        
+
         self.configer.update(['val_loss'], self.val_losses.avg)
         self.module_runner.save_net(self.seg_net, save_mode='performance')
         self.module_runner.save_net(self.seg_net, save_mode='val_loss')
@@ -319,14 +320,16 @@ class Trainer(object):
                 'Loss {loss.avg:.8f}\n'.format(
                     batch_time=self.batch_time, loss=self.val_losses))
             self.evaluator.print_scores()
-            
+            miou = self.evaluator.running_scores["seg"]
+
         self.batch_time.reset()
         self.val_losses.reset()
         self.evaluator.reset()
         self.seg_net.train()
         self.pixel_loss.train()
+        return miou
 
-    def train(self):
+    def train(self,trial):
         # cudnn.benchmark = True
         # self.__val()
         if self.configer.get('network', 'resume') is not None:
@@ -343,7 +346,8 @@ class Trainer(object):
             return
 
         while self.configer.get('iters') < self.configer.get('solver', 'max_iters'):
-            self.__train()
+            miou = self.__train()
+            trial.report(miou)
 
         # use swa to average the model
         if 'swa' in self.configer.get('lr', 'lr_policy'):
@@ -351,6 +355,8 @@ class Trainer(object):
             self.optimizer.bn_update(self.train_loader, self.seg_net)
 
         self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
+
+        return self.configer("max_performance")
 
     def summary(self):
         from lib.utils.summary import get_model_summary

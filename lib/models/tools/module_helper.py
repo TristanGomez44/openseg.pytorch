@@ -65,8 +65,8 @@ class ModuleHelper(object):
             elif torch_ver in ('1.0', '1.1'):
                 from lib.extensions.inplace_abn_1.bn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
-            elif torch_ver == '1.2':
-                from inplace_abn import InPlaceABNSync
+            else:
+                from lib.extensions.inplace_abn.bn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
 
         else:
@@ -90,7 +90,7 @@ class ModuleHelper(object):
             return SwitchNorm2d
 
         elif bn_type == 'gn':
-            return functools.partial(nn.GroupNorm, num_groups=32)    
+            return functools.partial(nn.GroupNorm, num_groups=32)
 
         elif bn_type == 'inplace_abn':
             torch_ver = torch.__version__[:3]
@@ -106,10 +106,10 @@ class ModuleHelper(object):
                 if ret_cls:
                     return InPlaceABNSync
 
-                return functools.partial(InPlaceABNSync, activation='none')  
-                          
-            elif torch_ver == '1.2':
-                from inplace_abn import InPlaceABNSync
+                return functools.partial(InPlaceABNSync, activation='none')
+
+            else:
+                from lib.extensions.inplace_abn.bn import InPlaceABNSync
                 if ret_cls:
                     return InPlaceABNSync
 
@@ -143,7 +143,7 @@ class ModuleHelper(object):
             # settings for "wide_resnet38"  or network == "resnet152"
             if network == "wide_resnet":
                 pretrained_dict = pretrained_dict['state_dict']
-                
+
             model_dict = model.state_dict()
 
             if network == "hrnet_plus":
@@ -243,4 +243,3 @@ class ModuleHelper(object):
                 module.weight, mode=mode, nonlinearity=nonlinearity)
         if hasattr(module, 'bias') and module.bias is not None:
             nn.init.constant_(module.bias, bias)
-
