@@ -66,7 +66,7 @@ class ModuleHelper(object):
                 from lib.extensions.inplace_abn_1.bn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
             else:
-                from lib.extensions.inplace_abn.bn import InPlaceABNSync
+                from inplace_abn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
 
         else:
@@ -109,7 +109,7 @@ class ModuleHelper(object):
                 return functools.partial(InPlaceABNSync, activation='none')
 
             else:
-                from lib.extensions.inplace_abn.bn import InPlaceABNSync
+                from inplace_abn import InPlaceABNSync
                 if ret_cls:
                     return InPlaceABNSync
 
