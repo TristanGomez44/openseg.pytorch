@@ -37,7 +37,6 @@ def run(configer,trial):
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
         #configer.get("lr","step")["gamma"] = trial.suggest_float("gamma",0.05,0.25,step=0.05)
         #configer.get("lr","step")["step_size"] = trial.suggest_int("step_size",50,200,log=True)
-        configer.update(["lr","is_warm"],trial.suggest_categorical("is_warm",[True,False]))
         configer.update(["optim","optim_method"],trial.suggest_categorical("optim_method", ["sgd","adam"]))
 
         if configer.get("optim","optim_method") == "sgd":
@@ -52,7 +51,10 @@ def run(configer,trial):
         configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, log=True)
         configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, log=True)
 
-    configer.add(["trial_nb"],trial.number)
+    if not configer.exists("trial_nb"):
+        configer.add(["trial_nb"],trial.number)
+    else:
+        configer.update(["trial_nb"],trial.number)
 
     model = None
     if configer.get('method') == 'fcn_segmentor':
