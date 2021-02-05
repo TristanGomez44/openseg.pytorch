@@ -91,7 +91,7 @@ class Configer(object):
                         )
                     )
                     sys.exit(1)
-                
+
                 parent_dict = parent_dict[cur_key]
 
             cur_key = remained_parts.pop(0)
@@ -186,9 +186,6 @@ class Configer(object):
         return False
 
     def add(self, key_tuple, value):
-        if self.exists(*key_tuple):
-            Log.error('{} Key: {} existed!!!'.format(self._get_caller(), key_tuple))
-            exit(1)
 
         if len(key_tuple) == 1:
             self.params_root[key_tuple[0]] = value
