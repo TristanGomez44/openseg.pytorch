@@ -5,7 +5,7 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -53,6 +53,7 @@ class DefaultLoader(data.Dataset):
 
         ori_target = ImageHelper.tonp(labelmap)
         ori_target[ori_target == 255] = -1
+        ori_img = ImageHelper.tonp(img)
 
         if self.aug_transform is not None:
             img, labelmap = self.aug_transform(img, labelmap=labelmap)
@@ -68,7 +69,8 @@ class DefaultLoader(data.Dataset):
         meta = dict(
             ori_img_size=img_size,
             border_size=border_size,
-            ori_target=ori_target
+            ori_target=ori_target,
+            ori_img=ori_img
         )
         return dict(
             img=DataContainer(img, stack=self.is_stack),
@@ -146,10 +148,10 @@ class DefaultLoader(data.Dataset):
             # we only use trainval set for training if set include_val
             if self.configer.get('dataset') == 'pascal_voc':
                 image_dir = os.path.join(root_dir, 'trainval/image')
-                label_dir = os.path.join(root_dir, 'trainval/label') 
+                label_dir = os.path.join(root_dir, 'trainval/label')
                 img_list.clear()
                 label_list.clear()
-                name_list.clear()              
+                name_list.clear()
 
             if self.configer.exists('data', 'label_edge2void'):
                 label_dir = os.path.join(root_dir, 'val/label_edge_void')
@@ -191,7 +193,7 @@ class DefaultLoader(data.Dataset):
                 img_list.append(img_path)
                 label_list.append(label_path)
                 name_list.append(image_name)
-                
+
         if dataset == 'train' and self.configer.get('data', 'include_atr'):
             Log.info("Use ATR dataset for training.")
             image_dir = os.path.join(root_dir, 'atr/image')
@@ -308,7 +310,7 @@ class CSDataTestLoader(data.Dataset):
                     Log.error('Image Path: {} not exists.'.format(img_path))
                     continue
                 img_list.append(img_path)
-                name_list.append(image_name)           
+                name_list.append(image_name)
 
         return img_list, name_list
 
