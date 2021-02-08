@@ -5,7 +5,7 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 from __future__ import absolute_import
@@ -20,7 +20,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 from lib.utils.tools.logger import Logger as Log
-
+import sys
 
 class WeightedFSOhemCELoss(nn.Module):
     def __init__(self, configer):
@@ -139,7 +139,17 @@ class FSOhemCELoss(nn.Module):
         prob = prob_out.gather(1, tmp_target.unsqueeze(1))
         mask = target.contiguous().view(-1,) != self.ignore_label
         sort_prob, sort_indices = prob.contiguous().view(-1,)[mask].contiguous().sort()
-        min_threshold = sort_prob[min(self.min_kept, sort_prob.numel() - 1)]
+
+        try:
+            min_threshold = sort_prob[min(self.min_kept, sort_prob.numel() - 1)]
+        except IndexError:
+            print("prob_out",prob_out.shape)
+            print("prob",prob.shape)
+            print("sort_prob",sort_prob.shape)
+            print("target",target.shape)
+            print("target.unique()",target.unique())
+            raise IndexError()
+
         threshold = max(min_threshold, self.thresh)
         loss_matirx = self.ce_loss(predict, target).contiguous().view(-1,)
         sort_loss_matirx = loss_matirx[mask][sort_indices]
@@ -206,7 +216,7 @@ class SegFixLoss(nn.Module):
             weights.append((label_map == i).sum().data)
         weights = torch.FloatTensor(weights)
         weights_sum = weights.sum()
-        return (1 - weights / weights_sum).cuda()       
+        return (1 - weights / weights_sum).cuda()
 
     def forward(self, inputs, targets, **kwargs):
 
