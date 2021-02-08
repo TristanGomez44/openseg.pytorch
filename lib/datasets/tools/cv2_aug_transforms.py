@@ -23,7 +23,7 @@ class _BaseTransform(object):
         'labelmap', 'maskmap',
         'distance_map', 'angle_map', 'multi_label_direction_map',
         'boundary_map', 'offsetmap',
-        # 'offsetmap_h', 'offsetmap_w', 
+        # 'offsetmap_h', 'offsetmap_w',
         'region_indexmap'
     )
 
@@ -735,7 +735,12 @@ class CV2AugCompose(object):
             trans_seq = self.configer.get('val_trans', 'trans_seq')
 
         for trans_key in trans_seq:
-            img, data_dict = self.transforms[trans_key](img, **data_dict)
+            img_tmp, data_dict_tmp = self.transforms[trans_key](img, **data_dict)
+            uniVal = np.unique(data_dict_tmp["labelmap"])
+            while (len(uniVal) == 1 and uniVal[0] == 255):
+                img_tmp, data_dict_tmp = self.transforms[trans_key](img, **data_dict)
+                uniVal = np.unique(data_dict_tmp["labelmap"])
+            img,data_dict = img_tmp,data_dict_tmp
 
         if self.configer.get('data', 'input_mode') == 'RGB':
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
