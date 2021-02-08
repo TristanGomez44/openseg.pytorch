@@ -32,7 +32,7 @@ import sqlite3
 def run(configer,trial):
 
     if configer.get('phase') == 'train':
-        configer.update(["train","batch_size"],trial.suggest_int("batch_size",1,32,log=True))
+        configer.update(["train","batch_size"],trial.suggest_int("batch_size",1,64,log=True))
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",1e-5, 1e-2, log=True))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
         #configer.get("lr","step")["gamma"] = trial.suggest_float("gamma",0.05,0.25,step=0.05)
