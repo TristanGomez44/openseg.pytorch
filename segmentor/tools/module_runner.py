@@ -123,9 +123,26 @@ class ModuleRunner(object):
                 in :attr:`state_dict` match the keys returned by this module's
                 :meth:`~torch.nn.Module.state_dict` function. Default: ``False``.
         """
+
+        #rad = "ocr_distri_head.object_context_block."
+        rad = ""
+
         unexpected_keys = []
         own_state = module.state_dict()
+
+        keyToChange = []
+        for name,param in state_dict.items():
+            if name.find("1.0.") != -1 and (name.replace("1.0.","1.") in own_state):
+                keyToChange.append((name,name.replace("1.0.","1.")))
+            elif name.find("3.0.") != -1 and (name.replace("3.0.","3.") in own_state):
+                keyToChange.append((name,name.replace("3.0.","3.")))
+
+        for oldKey,newKey in keyToChange:
+            state_dict[newKey] = state_dict[oldKey]
+            state_dict.pop(oldKey,None)
+
         for name, param in state_dict.items():
+
             if name not in own_state:
                 unexpected_keys.append(name)
                 continue
