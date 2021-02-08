@@ -37,6 +37,7 @@ from segmentor.tools.data_helper import DataHelper
 from segmentor.tools.evaluator import get_evaluator
 from lib.utils.distributed import get_world_size, get_rank, is_distributed
 
+import sys
 
 class Trainer(object):
     """
@@ -125,7 +126,7 @@ class Trainer(object):
                   {'params': nbb_lr, 'lr': self.configer.get('lr', 'base_lr') * self.configer.get('lr', 'nbb_mult')}]
         return params
 
-    def __train(self):
+    def __train(self,trial):
         """
           Train function of every epoch during train phase.
         """
@@ -157,30 +158,38 @@ class Trainer(object):
             self.data_time.update(time.time() - start_time)
 
             foward_start_time = time.time()
-            with torch.autograd.detect_anomaly():
-                outputs = self.seg_net(*inputs)
+            outputs = self.seg_net(*inputs)
             self.foward_time.update(time.time() - foward_start_time)
 
             loss_start_time = time.time()
-            if is_distributed():
-                import torch.distributed as dist
-                def reduce_tensor(inp):
-                    """
-                    Reduce the loss from all processes so that
-                    process with rank 0 has the averaged results.
-                    """
-                    world_size = get_world_size()
-                    if world_size < 2:
-                        return inp
-                    with torch.no_grad():
-                        reduced_inp = inp
-                        dist.reduce(reduced_inp, dst=0)
-                    return reduced_inp
-                loss = self.pixel_loss(outputs, targets)
-                backward_loss = loss
-                display_loss = reduce_tensor(backward_loss) / get_world_size()
-            else:
-                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'))
+
+            try:
+                if is_distributed():
+                    import torch.distributed as dist
+                    def reduce_tensor(inp):
+                        """
+                        Reduce the loss from all processes so that
+                        process with rank 0 has the averaged results.
+                        """
+                        world_size = get_world_size()
+                        if world_size < 2:
+                            return inp
+                        with torch.no_grad():
+                            reduced_inp = inp
+                            dist.reduce(reduced_inp, dst=0)
+                        return reduced_inp
+                    loss = self.pixel_loss(outputs, targets)
+                    backward_loss = loss
+                    display_loss = reduce_tensor(backward_loss) / get_world_size()
+                else:
+                    backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'))
+            except IndexError:
+                for i in range(len(data_dict["meta"])):
+                    np.save("results/origTarget{}.npy".format(i),data_dict["meta"][i]["ori_target"])
+                    np.save("results/origImg{}.npy".format(i),data_dict["meta"][i]["ori_img"])
+                    np.save("results/target{}.npy".format(i),data_dict["labelmap"])
+                    np.save("results/img{}.npy".format(i),data_dict["img"])
+                sys.exit(0)
 
             self.train_losses.update(display_loss.item(), batch_size)
             self.loss_time.update(time.time() - loss_start_time)
@@ -232,9 +241,9 @@ class Trainer(object):
             # if self.configer.get('epoch') % self.configer.get('solver', 'test_interval') == 0:
             if self.configer.get('iters') % self.configer.get('solver', 'test_interval') == 0:
                 miou = self.__val()
+                trial.report(miou)
 
         self.configer.plus_one('epoch')
-        return miou
 
     def __val(self, data_loader=None):
         """
@@ -346,8 +355,7 @@ class Trainer(object):
             return
 
         while self.configer.get('iters') < self.configer.get('solver', 'max_iters'):
-            miou = self.__train()
-            trial.report(miou)
+            self.__train(trial)
 
         # use swa to average the model
         if 'swa' in self.configer.get('lr', 'lr_policy'):
