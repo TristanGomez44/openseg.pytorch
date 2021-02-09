@@ -265,52 +265,62 @@ class Trainer(object):
                 (inputs, targets), batch_size = self.data_helper.prepare_data(data_dict)
 
             with torch.no_grad():
-                if self.configer.get('dataset') == 'lip':
-                    inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
-                    outputs = self.seg_net(inputs)
-                    outputs_ = self.module_runner.gather(outputs)
-                    if isinstance(outputs_, (list, tuple)):
-                        outputs_ = outputs_[-1]
-                    outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
-                    outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
-                    if outputs_rev.shape[1] == 20:
-                        outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
-                        outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
-                        outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
-                        outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
-                        outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
-                        outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
-                    outputs_rev = torch.flip(outputs_rev, [3])
-                    outputs = (outputs + outputs_rev) / 2.
-                    self.evaluator.update_score(outputs, data_dict['meta'])
 
-                elif self.data_helper.conditions.diverse_size:
-                    outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
+                try:
+                    
+                    if self.configer.get('dataset') == 'lip':
+                        inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
+                        outputs = self.seg_net(inputs)
+                        outputs_ = self.module_runner.gather(outputs)
+                        if isinstance(outputs_, (list, tuple)):
+                            outputs_ = outputs_[-1]
+                        outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
+                        outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
+                        if outputs_rev.shape[1] == 20:
+                            outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
+                            outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
+                            outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
+                            outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
+                            outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
+                            outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
+                        outputs_rev = torch.flip(outputs_rev, [3])
+                        outputs = (outputs + outputs_rev) / 2.
+                        self.evaluator.update_score(outputs, data_dict['meta'])
 
-                    for i in range(len(outputs)):
-                        loss = self.pixel_loss(outputs[i], targets[i])
-                        self.val_losses.update(loss.item(), 1)
-                        outputs_i = outputs[i]
-                        if isinstance(outputs_i, torch.Tensor):
-                            outputs_i = [outputs_i]
-                        self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
+                    elif self.data_helper.conditions.diverse_size:
+                        outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
 
-                else:
-                    outputs = self.seg_net(*inputs)
+                        for i in range(len(outputs)):
+                            loss = self.pixel_loss(outputs[i], targets[i])
+                            self.val_losses.update(loss.item(), 1)
+                            outputs_i = outputs[i]
+                            if isinstance(outputs_i, torch.Tensor):
+                                outputs_i = [outputs_i]
+                            self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
+                    else:
+                        outputs = self.seg_net(*inputs)
 
-                    try:
-                        loss = self.pixel_loss(
-                            outputs, targets,
-                            gathered=self.configer.get('network', 'gathered')
-                        )
-                    except AssertionError as e:
-                        print(len(outputs), len(targets))
+                        try:
+                            loss = self.pixel_loss(
+                                outputs, targets,
+                                gathered=self.configer.get('network', 'gathered')
+                            )
+                        except AssertionError as e:
+                            print(len(outputs), len(targets))
 
 
-                    if not is_distributed():
-                        outputs = self.module_runner.gather(outputs)
-                    self.val_losses.update(loss.item(), batch_size)
-                    self.evaluator.update_score(outputs, data_dict['meta'])
+                        if not is_distributed():
+                            outputs = self.module_runner.gather(outputs)
+                        self.val_losses.update(loss.item(), batch_size)
+                        self.evaluator.update_score(outputs, data_dict['meta'])
+
+                except IndexError:
+                    for i in range(len(data_dict["meta"])):
+                        np.save("results/origTarget{}.npy".format(i),data_dict["meta"][i]["ori_target"])
+                        np.save("results/origImg{}.npy".format(i),data_dict["meta"][i]["ori_img"])
+                        np.save("results/target{}.npy".format(i),data_dict["labelmap"])
+                        np.save("results/img{}.npy".format(i),data_dict["img"])
+                    sys.exit(0)
 
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
