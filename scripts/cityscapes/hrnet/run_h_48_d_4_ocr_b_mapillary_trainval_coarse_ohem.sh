@@ -40,7 +40,7 @@ if [ "$1"x == "train"x ]; then
                        --checkpoints_name ${CHECKPOINTS_NAME} \
                        --base_lr 0.0001 \
                        --test_interval 2000 \
-                       --val_on_test True --exp_id cityscapes \
+                       --val_on_test False --exp_id cityscapes \
                        2>&1 | tee ${LOG_FILE}
 
 
