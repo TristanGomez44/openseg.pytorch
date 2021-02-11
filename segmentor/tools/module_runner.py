@@ -101,9 +101,9 @@ class ModuleRunner(object):
 
             # load state_dict
             if hasattr(net, 'module'):
-                self.load_state_dict(net.module, checkpoint_dict, self.configer.get('network', 'resume_strict'))
+                self.load_state_dict(net.module, checkpoint_dict, False)
             else:
-                self.load_state_dict(net, checkpoint_dict, self.configer.get('network', 'resume_strict'))
+                self.load_state_dict(net, checkpoint_dict, False)
 
             if self.configer.get('network', 'resume_continue'):
                 self.configer.resume(resume_dict['config_dict'])
@@ -124,22 +124,8 @@ class ModuleRunner(object):
                 :meth:`~torch.nn.Module.state_dict` function. Default: ``False``.
         """
 
-        #rad = "ocr_distri_head.object_context_block."
-        rad = ""
-
         unexpected_keys = []
         own_state = module.state_dict()
-
-        keyToChange = []
-        for name,param in state_dict.items():
-            if name.find("1.0.") != -1 and (name.replace("1.0.","1.") in own_state):
-                keyToChange.append((name,name.replace("1.0.","1.")))
-            elif name.find("3.0.") != -1 and (name.replace("3.0.","3.") in own_state):
-                keyToChange.append((name,name.replace("3.0.","3.")))
-
-        for oldKey,newKey in keyToChange:
-            state_dict[newKey] = state_dict[oldKey]
-            state_dict.pop(oldKey,None)
 
         for name, param in state_dict.items():
 
