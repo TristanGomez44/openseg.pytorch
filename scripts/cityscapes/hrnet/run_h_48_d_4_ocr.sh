@@ -4,13 +4,10 @@ cd $SCRIPTPATH
 cd ../../../
 . config.profile
 # check the enviroment info
-nvidia-smi
-${PYTHON} -m pip install yacs
-${PYTHON} -m pip install torchcontrib
-${PYTHON} -m pip install pydensecrf
 
 export PYTHONPATH="$PWD":$PYTHONPATH
 
+DATA_ROOT="./datasets/"
 DATA_DIR="${DATA_ROOT}/cityscapes"
 SAVE_DIR="${DATA_ROOT}/seg_result/cityscapes/"
 BACKBONE="hrnet48"
@@ -25,13 +22,13 @@ LOG_FILE="./log/cityscapes/${CHECKPOINTS_NAME}.log"
 echo "Logging to $LOG_FILE"
 mkdir -p `dirname $LOG_FILE`
 
-PRETRAINED_MODEL="./pretrained_model/hrnetv2_w48_imagenet_pretrained.pth"
+PRETRAINED_MODEL="./pretrained_model/hrnet_w48_ocr_1_latest.pth"
 MAX_ITERS=80000
 BATCHSIZE=8
 
 
 if [ "$1"x == "train"x ]; then
-  ${PYTHON} -u main.py --configs ${CONFIGS} \
+  python3 main.py --configs ${CONFIGS} \
                        --drop_last y \
                        --phase train \
                        --gathered n \
@@ -39,14 +36,15 @@ if [ "$1"x == "train"x ]; then
                        --log_to_file n \
                        --backbone ${BACKBONE} \
                        --model_name ${MODEL_NAME} \
-                       --gpu 0 1 2 3 \
+                       --gpu 0 1 \
                        --data_dir ${DATA_DIR} \
                        --loss_type ${LOSS_TYPE} \
                        --max_iters ${MAX_ITERS} \
                        --checkpoints_name ${CHECKPOINTS_NAME} \
-                       --pretrained ${PRETRAINED_MODEL} \
+                       --resume  ${PRETRAINED_MODEL} \
+                       --exp_id cityscapes \
                        2>&1 | tee ${LOG_FILE}
-                       
+
 
 elif [ "$1"x == "resume"x ]; then
   ${PYTHON} -u main.py --configs ${CONFIGS} \
@@ -72,7 +70,7 @@ elif [ "$1"x == "val"x ]; then
                        --backbone ${BACKBONE} --model_name ${MODEL_NAME} --checkpoints_name ${CHECKPOINTS_NAME} \
                        --phase test --gpu 0 1 2 3 --resume ./checkpoints/cityscapes/${CHECKPOINTS_NAME}_latest.pth \
                        --loss_type ${LOSS_TYPE} --test_dir ${DATA_DIR}/val/image \
-                       --out_dir ${SAVE_DIR}${CHECKPOINTS_NAME}_val 
+                       --out_dir ${SAVE_DIR}${CHECKPOINTS_NAME}_val
 
   cd lib/metrics
   ${PYTHON} -u cityscapes_evaluator.py --pred_dir ${SAVE_DIR}${CHECKPOINTS_NAME}_val/label  \
