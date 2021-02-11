@@ -152,7 +152,8 @@ class ModuleHelper(object):
                 load_dict = {k : v for k, v in pretrained_dict.items() if k in model_dict.keys()}
 
             elif network == "hrnet" or network == "xception" or network == 'resnest':
-                load_dict = {k : v for k, v in pretrained_dict.items() if k in model_dict.keys()}
+
+                load_dict = {k : v for k, v in pretrained_dict["state_dict"].items() if k in model_dict.keys()}
                 Log.info('Missing keys: {}'.format(list(set(model_dict) - set(load_dict))))
 
             elif network == "dcnet" or network == "resnext":
