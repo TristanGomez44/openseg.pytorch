@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_ground_truth', action='store_true', dest='use_ground_truth', help='Use ground truth for training.')
 
     parser.add_argument('--exp_id', type=str,default="default")
-    parser.add_argument('--max_batch_size', type=int,default=32)
+    parser.add_argument('--max_batch_size', type=int,default=27)
     parser.add_argument('--optuna_trial_nb', type=int,default=25)
 
     parser.add_argument('--val_on_test', type=str2bool,default=True)
