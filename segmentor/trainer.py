@@ -84,7 +84,7 @@ class Trainer(object):
         self.optimizer, self.scheduler = self.optim_scheduler.init_optimizer(params_group)
 
         self.train_loader = self.data_loader.get_trainloader()
-        self.val_loader = self.data_loader.get_valloader("test" if self.configer.get("val_on_test") else "val")
+        self.val_loader = self.data_loader.get_valloader("val")
         self.pixel_loss = self.loss_manager.get_seg_loss()
         if is_distributed():
             self.pixel_loss = self.module_runner.to_device(self.pixel_loss)
@@ -239,7 +239,7 @@ class Trainer(object):
 
             # Check to val the current model.
             # if self.configer.get('epoch') % self.configer.get('solver', 'test_interval') == 0:
-            if self.configer.get('iters') % self.configer.get('solver', 'test_interval') == 0:
+            if self.configer.get('iters') % self.configer.get('solver', 'test_interval') == 0 and (not self.configer.get("val_on_test")):
                 miou = self.__val()
                 trial.report(miou)
 
@@ -267,7 +267,7 @@ class Trainer(object):
             with torch.no_grad():
 
                 try:
-                    
+
                     if self.configer.get('dataset') == 'lip':
                         inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
                         outputs = self.seg_net(inputs)
@@ -318,12 +318,14 @@ class Trainer(object):
                     for i in range(len(data_dict["meta"])):
                         np.save("results/origTarget{}.npy".format(i),data_dict["meta"][i]["ori_target"])
                         np.save("results/origImg{}.npy".format(i),data_dict["meta"][i]["ori_img"])
-                        np.save("results/target{}.npy".format(i),data_dict["labelmap"])
-                        np.save("results/img{}.npy".format(i),data_dict["img"])
+                        np.save("results/target{}.npy".format(i),data_dict["labelmap"][i])
+                        np.save("results/img{}.npy".format(i),data_dict["img"][i])
                     sys.exit(0)
 
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
+
+            break
 
         self.evaluator.update_performance()
 
@@ -349,20 +351,20 @@ class Trainer(object):
         return miou
 
     def train(self,trial):
-        # cudnn.benchmark = True
+        cudnn.benchmark = True
         # self.__val()
-        if self.configer.get('network', 'resume') is not None:
-            if self.configer.get('network', 'resume_val'):
-                self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
-                return
-            elif self.configer.get('network', 'resume_train'):
-                self.__val(data_loader=self.data_loader.get_valloader(dataset='train'))
-                return
+        #if self.configer.get('network', 'resume') is not None:
+        #    if self.configer.get('network', 'resume_val'):
+        #        self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
+        #        return
+        #    elif self.configer.get('network', 'resume_train'):
+        #        self.__val(data_loader=self.data_loader.get_valloader(dataset='train'))
+        #        return
             # return
 
-        if self.configer.get('network', 'resume') is not None and self.configer.get('network', 'resume_val'):
-            self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
-            return
+        #if self.configer.get('network', 'resume') is not None and self.configer.get('network', 'resume_val'):
+        #    self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
+        #    return
 
         while self.configer.get('iters') < self.configer.get('solver', 'max_iters'):
             self.__train(trial)
@@ -372,9 +374,10 @@ class Trainer(object):
             self.optimizer.swap_swa_sgd()
             self.optimizer.bn_update(self.train_loader, self.seg_net)
 
-        self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
+        if not self.configer.get("val_on_test"):
+            self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
 
-        return self.configer("max_performance")
+        return self.configer.get("performance")
 
     def summary(self):
         from lib.utils.summary import get_model_summary
