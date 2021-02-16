@@ -241,7 +241,7 @@ class Trainer(object):
             # if self.configer.get('epoch') % self.configer.get('solver', 'test_interval') == 0:
             if self.configer.get('iters') % self.configer.get('solver', 'test_interval') == 0 and (not self.configer.get("val_on_test")):
                 miou = self.__val()
-                trial.report(miou)
+                trial.report(miou,self.configer.get('epoch'))
 
         self.configer.plus_one('epoch')
 
@@ -340,8 +340,7 @@ class Trainer(object):
                 'Test Time {batch_time.sum:.3f}s, ({batch_time.avg:.3f})\t'
                 'Loss {loss.avg:.8f}\n'.format(
                     batch_time=self.batch_time, loss=self.val_losses))
-            self.evaluator.print_scores()
-            miou = self.evaluator.running_scores["seg"]
+            miou = self.evaluator.print_scores()
 
         self.batch_time.reset()
         self.val_losses.reset()
