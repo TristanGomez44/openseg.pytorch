@@ -229,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument('--max_batch_size', type=int,default=27)
     parser.add_argument('--optuna_trial_nb', type=int,default=25)
 
-    parser.add_argument('--val_on_test', type=str2bool,default=True)
+    parser.add_argument('--val_on_test', type=str2bool,default=False)
 
     parser.add_argument('REMAIN', nargs='*')
 
