@@ -23,7 +23,7 @@ echo "Logging to $LOG_FILE"
 mkdir -p `dirname $LOG_FILE`
 
 PRETRAINED_MODEL="./pretrained_model/hrnet_w48_ocr_1_latest.pth"
-MAX_ITERS=80000
+MAX_ITERS=16000
 BATCHSIZE=8
 
 
