@@ -137,7 +137,10 @@ class ModuleRunner(object):
                 param = param.data
 
             try:
-                own_state[name].copy_(param)
+                if name == "cls_head.weight":
+                    own_state["cls_head.weight"][:,:param.size(1)] = param
+                else:
+                    own_state[name].copy_(param)
             except Exception:
                 Log.warn('While copying the parameter named {}, '
                                    'whose dimensions in the model are {} and '
