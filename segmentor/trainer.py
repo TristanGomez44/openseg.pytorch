@@ -325,8 +325,6 @@ class Trainer(object):
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
 
-            break
-
         self.evaluator.update_performance()
 
         self.configer.update(['val_loss'], self.val_losses.avg)
