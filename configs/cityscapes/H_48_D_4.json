@@ -19,7 +19,7 @@
       }
     },
     "val": {
-      "batch_size": 4,
+      "batch_size": 2,
       "mode": "ss_test",
       "data_transformer": {
         "size_mode": "fix_size",
@@ -106,7 +106,7 @@
     "solver": {
       "display_iter": 500,
       "test_interval": 1000,
-      "max_iters": 8000
+      "max_iters": 4000
     },
     "optim": {
       "optim_method": "sgd",
