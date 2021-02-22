@@ -35,17 +35,11 @@ def run(configer,trial):
         configer.update(["train","batch_size"],trial.suggest_int("batch_size",1,configer.get("max_batch_size"),log=True))
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",1e-5, 1e-2, log=True))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
-        #configer.get("lr","step")["gamma"] = trial.suggest_float("gamma",0.05,0.25,step=0.05)
-        #configer.get("lr","step")["step_size"] = trial.suggest_int("step_size",50,200,log=True)
         configer.update(["optim","optim_method"],trial.suggest_categorical("optim_method", ["sgd","adam"]))
 
         if configer.get("optim","optim_method") == "sgd":
-            #configer.get("optim","sgd")["momentum"] = trial.suggest_float("momentum",0.5, 0.99, log=True)
-            #configer.get("optim","sgd")["nesterov"] = trial.suggest_categorical("nesterov", [True,False])
             configer.get("optim","sgd")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
         else:
-            #configer.get("optim","adam")["betas"][0] = trial.suggest_float("adam_betas_0",0.7, 0.9, step=0.1)
-            #configer.get("optim","adam")["betas"][0] = trial.suggest_float("adam_betas_1",0.8, 0.999, log=True)
             configer.get("optim","adam")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
 
         configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, log=True)
