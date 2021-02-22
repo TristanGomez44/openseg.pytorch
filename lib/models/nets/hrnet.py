@@ -147,42 +147,8 @@ class HRNet_W48_OCR(nn.Module):
 
         out_aux = F.interpolate(out_aux, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
 
-        class_feat = representativeVectors(feats,out)
-        feats_resh = feats.view(feats.size(0),feats.size(1),-1).permute(0,2,1)
-        scal_prod = (class_feat.unsqueeze(1) * feats_resh.unsqueeze(2)).sum(dim=-1)
-        class_feat_norm = torch.sqrt(torch.pow(class_feat,2).sum(dim=-1)).unsqueeze(1)
-        feats_resh_norm = torch.sqrt(torch.pow(feats_resh,2).sum(dim=-1)).unsqueeze(2)
-        cos_sim = scal_prod/(class_feat_norm*feats_resh_norm)
-        weights = torch.softmax(cos_sim,dim=-1)
-        x_new_feat = (weights.unsqueeze(3)*class_feat.unsqueeze(1)).sum(dim=2)
-        x_new_feat = x_new_feat.permute(0,2,1).view(feats.size(0),feats.size(1),feats.size(2),feats.size(3))
-        out = self.head(x_new_feat)
-
         out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
         return out_aux, out
-
-def representativeVectors(feats,preds):
-
-    nbVec = preds.size(1)
-
-    feats = feats.permute(0,2,3,1).reshape(feats.size(0),feats.size(2)*feats.size(3),feats.size(1))
-    preds = preds.permute(0,2,3,1).reshape(preds.size(0),preds.size(2)*preds.size(3),preds.size(1))
-    norm = torch.sqrt(torch.pow(feats,2).sum(dim=-1)) + 0.00001
-
-    repreVecList = []
-
-    for i in range(nbVec):
-        _,ind = preds[:,:,i].max(dim=1,keepdim=True)
-        raw_reprVec_norm = norm[torch.arange(feats.size(0)).unsqueeze(1),ind]
-        raw_reprVec = feats[torch.arange(feats.size(0)).unsqueeze(1),ind]
-        sim = (feats*raw_reprVec).sum(dim=-1)/(norm*raw_reprVec_norm)
-        simNorm = sim/sim.sum(dim=1,keepdim=True)
-        reprVec = (feats*simNorm.unsqueeze(-1)).sum(dim=1)
-        repreVecList.append(reprVec.unsqueeze(1))
-
-    repreVecList = torch.cat(repreVecList,dim=1)
-
-    return repreVecList
 
 class HRNet_W48_OCR_B(nn.Module):
     """
