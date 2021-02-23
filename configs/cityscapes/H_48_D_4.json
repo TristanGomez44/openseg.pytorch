@@ -106,7 +106,7 @@
     "solver": {
       "display_iter": 500,
       "test_interval": 1000,
-      "max_iters": 4000
+      "max_iters": 2000
     },
     "optim": {
       "optim_method": "sgd",
