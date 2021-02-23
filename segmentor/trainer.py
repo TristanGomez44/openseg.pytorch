@@ -163,33 +163,25 @@ class Trainer(object):
 
             loss_start_time = time.time()
 
-            try:
-                if is_distributed():
-                    import torch.distributed as dist
-                    def reduce_tensor(inp):
-                        """
-                        Reduce the loss from all processes so that
-                        process with rank 0 has the averaged results.
-                        """
-                        world_size = get_world_size()
-                        if world_size < 2:
-                            return inp
-                        with torch.no_grad():
-                            reduced_inp = inp
-                            dist.reduce(reduced_inp, dst=0)
-                        return reduced_inp
-                    loss = self.pixel_loss(outputs, targets)
-                    backward_loss = loss
-                    display_loss = reduce_tensor(backward_loss) / get_world_size()
-                else:
-                    backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'))
-            except IndexError:
-                for i in range(len(data_dict["meta"])):
-                    np.save("results/origTarget{}.npy".format(i),data_dict["meta"][i]["ori_target"])
-                    np.save("results/origImg{}.npy".format(i),data_dict["meta"][i]["ori_img"])
-                    np.save("results/target{}.npy".format(i),data_dict["labelmap"])
-                    np.save("results/img{}.npy".format(i),data_dict["img"])
-                sys.exit(0)
+            if is_distributed():
+                import torch.distributed as dist
+                def reduce_tensor(inp):
+                    """
+                    Reduce the loss from all processes so that
+                    process with rank 0 has the averaged results.
+                    """
+                    world_size = get_world_size()
+                    if world_size < 2:
+                        return inp
+                    with torch.no_grad():
+                        reduced_inp = inp
+                        dist.reduce(reduced_inp, dst=0)
+                    return reduced_inp
+                loss = self.pixel_loss(outputs, targets)
+                backward_loss = loss
+                display_loss = reduce_tensor(backward_loss) / get_world_size()
+            else:
+                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'))
 
             self.train_losses.update(display_loss.item(), batch_size)
             self.loss_time.update(time.time() - loss_start_time)
@@ -232,9 +224,12 @@ class Trainer(object):
                self.configer.get('iters') > normal_max_iters and \
                ((self.configer.get('iters') - normal_max_iters) % swa_step_max_iters == 0 or \
                 self.configer.get('iters') == self.configer.get('solver', 'max_iters')):
-               self.optimizer.update_swa()
+                self.optimizer.update_swa()
 
-            if self.configer.get('iters') == self.configer.get('solver', 'max_iters'):
+            if self.configer.get('iters') % 200 == 0:
+                Log.info("{},{}".format(self.configer.get('iters'),self.configer.get('solver', 'max_iters')))
+
+            if self.configer.get('iters') >= self.configer.get('solver', 'max_iters'):
                 break
 
             # Check to val the current model.
@@ -349,7 +344,7 @@ class Trainer(object):
 
     def train(self,trial):
         cudnn.benchmark = True
-        # self.__val()
+        #self.__val()
         #if self.configer.get('network', 'resume') is not None:
         #    if self.configer.get('network', 'resume_val'):
         #        self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
@@ -362,6 +357,8 @@ class Trainer(object):
         #if self.configer.get('network', 'resume') is not None and self.configer.get('network', 'resume_val'):
         #    self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
         #    return
+
+        Log.info("trainer l361 {}".format(self.configer.get('solver', 'max_iters')))
 
         while self.configer.get('iters') < self.configer.get('solver', 'max_iters'):
             self.__train(trial)
