@@ -76,31 +76,36 @@ class SpatialGather_Module(nn.Module):
 
                 norm = torch.sqrt(torch.pow(feats,2).sum(dim=-1,keepdim=True))
 
-                rawRepVec = feats[torch.arange(batch_size).unsqueeze(1),max_inds]
-                rawRepVecNorm = norm[torch.arange(batch_size).unsqueeze(1),max_inds]
+                allCont = []
+                for i in range(max_inds.size(1)):
+                    rawRepVec = feats[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
+                    rawRepVecNorm = norm[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
 
-                #rawRepVec batch x k x c
-                #feats     batch x hw x c
+                    #rawRepVec batch x k x c
+                    #feats     batch x hw x c
 
-                #rawRepVec batch x k x 1  x c
-                #feats     batch x 1 x hw x c
-                #res       batch x k x hw x c
+                    #rawRepVec batch x k x 1  x c
+                    #feats     batch x 1 x hw x c
+                    #res       batch x k x hw x c
 
-                prod = (rawRepVec.unsqueeze(2)*feats.unsqueeze(1)).sum(dim=-1,keepdim=True)
-                cos = prod/(rawRepVecNorm.unsqueeze(2)*norm.unsqueeze(1))
+                    prod = (rawRepVec.unsqueeze(2)*feats.unsqueeze(1)).sum(dim=-1,keepdim=True)
+                    cos = prod/(rawRepVecNorm.unsqueeze(2)*norm.unsqueeze(1))
 
-                #weights batch x k x hw x 1
-                #feats batch x 1 x hw x c
+                    #weights batch x k x hw x 1
+                    #feats batch x 1 x hw x c
 
-                weights = cos/cos.sum(dim=2,keepdim=True)
-                ocr_context = (feats.unsqueeze(1)*weights).sum(dim=2)
+                    weights = cos/cos.sum(dim=2,keepdim=True)
+                    ocr_context = (feats.unsqueeze(1)*weights).sum(dim=2)
 
-                # batch x k x c
+                    # batch x k x c
 
-                ocr_context = ocr_context.permute(0,2,1).unsqueeze(3)
+                    ocr_context = ocr_context.permute(0,2,1).unsqueeze(3)
 
-                # batch x c x k x 1
+                    allCont.append(ocr_context)
 
+                    # batch x c x k x 1
+
+                ocr_context = torch.cat(allCont,dim=2)
                 return ocr_context
 
 class PyramidSpatialGather_Module(nn.Module):
