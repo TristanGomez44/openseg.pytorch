@@ -32,18 +32,18 @@ import sqlite3
 def run(configer,trial):
 
     if configer.get('phase') == 'train':
-        configer.update(["train","batch_size"],trial.suggest_int("batch_size",1,configer.get("max_batch_size"),log=True))
-        configer.update(["lr","base_lr"],trial.suggest_float("base_lr",1e-5, 1e-2, log=True))
+        configer.update(["train","batch_size"],trial.suggest_int("batch_size",4,configer.get("max_batch_size"),step=1))
+        configer.update(["lr","base_lr"],trial.suggest_float("base_lr",0.0001, 0.0019, step=0.0003))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
         configer.update(["optim","optim_method"],trial.suggest_categorical("optim_method", ["sgd","adam"]))
 
         if configer.get("optim","optim_method") == "sgd":
-            configer.get("optim","sgd")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
+            configer.get("optim","sgd")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.0002, step=0.00003)
         else:
-            configer.get("optim","adam")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.001, log=True)
+            configer.get("optim","adam")["weight_decay"] = trial.suggest_float("weight_decay",0.0001, 0.0010, step=0.0002)
 
-        configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, log=True)
-        configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, log=True)
+        configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, step=0.2)
+        configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, step=0.5)
 
     if not configer.exists("trial_nb"):
         configer.add(["trial_nb"],trial.number)
@@ -54,6 +54,7 @@ def run(configer,trial):
     if configer.get('method') == 'fcn_segmentor':
         if configer.get('phase') == 'train':
             from segmentor.trainer import Trainer
+            Log.info("main l57 {}".format(configer.get('solver', 'max_iters')))
             model = Trainer(configer)
         elif configer.get('phase') == 'test':
             from segmentor.tester import Tester
@@ -66,6 +67,7 @@ def run(configer,trial):
         exit(1)
 
     if configer.get('phase') == 'train':
+        Log.info("main l70 {}".format(configer.get('solver', 'max_iters')))
         miou = model.train(trial)
         return miou
 
@@ -95,7 +97,7 @@ if __name__ == "__main__":
                         dest='configs', help='The file of the hyper parameters.')
     parser.add_argument('--phase', default='train', type=str,
                         dest='phase', help='The phase of module.')
-    parser.add_argument('--gpu', default=[0, 1, 2, 3], nargs='+', type=int,
+    parser.add_argument('--gpu', default=[0,1,2,3], nargs='+', type=int,
                         dest='gpu', help='The gpu list used.')
 
     # ***********  Params for data.  **********
@@ -220,7 +222,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_ground_truth', action='store_true', dest='use_ground_truth', help='Use ground truth for training.')
 
     parser.add_argument('--exp_id', type=str,default="default")
-    parser.add_argument('--max_batch_size', type=int,default=27)
+    parser.add_argument('--max_batch_size', type=int,default=10)
     parser.add_argument('--optuna_trial_nb', type=int,default=25)
 
     parser.add_argument('--val_on_test', type=str2bool,default=False)
@@ -298,6 +300,6 @@ if __name__ == "__main__":
                     gc.collect()
                     torch.cuda.empty_cache()
                     old_max_bs = configer.get("max_batch_size")
-                    configer.update(["max_batch_size"],old_max_bs-5)
+                    configer.update(["max_batch_size"],old_max_bs-1)
                 else:
                     raise RuntimeError(e)
