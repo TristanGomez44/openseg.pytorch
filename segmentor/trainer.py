@@ -36,7 +36,7 @@ from segmentor.tools.optim_scheduler import OptimScheduler
 from segmentor.tools.data_helper import DataHelper
 from segmentor.tools.evaluator import get_evaluator
 from lib.utils.distributed import get_world_size, get_rank, is_distributed
-
+import cv2
 import sys
 
 class Trainer(object):
@@ -73,6 +73,11 @@ class Trainer(object):
     def _init_model(self):
         self.seg_net = self.model_manager.semantic_segmentor()
         self.seg_net = self.module_runner.load_net(self.seg_net)
+
+        if self.configer.get("teacher_interp") > 0:
+            self.teach = self.model_manager.semantic_segmentor(teach=True)
+            self.teach = self.module_runner.load_net(self.teach)
+            self.teach.eval()
 
         Log.info('Params Group Method: {}'.format(self.configer.get('optim', 'group_method')))
         if self.configer.get('optim', 'group_method') == 'decay':
@@ -161,6 +166,12 @@ class Trainer(object):
             outputs = self.seg_net(*inputs)
             self.foward_time.update(time.time() - foward_start_time)
 
+            if self.configer.get("teacher_interp") > 0:
+                with torch.no_grad():
+                    teach_outputs = self.teach(*inputs)
+            else:
+                teach_outputs = None
+
             loss_start_time = time.time()
 
             if is_distributed():
@@ -181,7 +192,7 @@ class Trainer(object):
                 backward_loss = loss
                 display_loss = reduce_tensor(backward_loss) / get_world_size()
             else:
-                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'))
+                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'),teach=teach_outputs)
 
             self.train_losses.update(display_loss.item(), batch_size)
             self.loss_time.update(time.time() - loss_start_time)
@@ -240,7 +251,7 @@ class Trainer(object):
 
         self.configer.plus_one('epoch')
 
-    def __val(self, data_loader=None):
+    def __val(self, data_loader=None,retSimMap=False):
         """
           Validation function during the train phase.
         """
@@ -261,61 +272,69 @@ class Trainer(object):
 
             with torch.no_grad():
 
-                try:
+                if self.configer.get('dataset') == 'lip':
+                    inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
+                    outputs = self.seg_net(inputs)
+                    outputs_ = self.module_runner.gather(outputs)
+                    if isinstance(outputs_, (list, tuple)):
+                        outputs_ = outputs_[-1]
+                    outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
+                    outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
+                    if outputs_rev.shape[1] == 20:
+                        outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
+                        outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
+                        outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
+                        outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
+                        outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
+                        outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
+                    outputs_rev = torch.flip(outputs_rev, [3])
+                    outputs = (outputs + outputs_rev) / 2.
+                    self.evaluator.update_score(outputs, data_dict['meta'])
 
-                    if self.configer.get('dataset') == 'lip':
-                        inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
-                        outputs = self.seg_net(inputs)
-                        outputs_ = self.module_runner.gather(outputs)
-                        if isinstance(outputs_, (list, tuple)):
-                            outputs_ = outputs_[-1]
-                        outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
-                        outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
-                        if outputs_rev.shape[1] == 20:
-                            outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
-                            outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
-                            outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
-                            outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
-                            outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
-                            outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
-                        outputs_rev = torch.flip(outputs_rev, [3])
-                        outputs = (outputs + outputs_rev) / 2.
-                        self.evaluator.update_score(outputs, data_dict['meta'])
+                elif self.data_helper.conditions.diverse_size:
+                    outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
 
-                    elif self.data_helper.conditions.diverse_size:
-                        outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
+                    for i in range(len(outputs)):
+                        loss = self.pixel_loss(outputs[i], targets[i])
+                        self.val_losses.update(loss.item(), 1)
+                        outputs_i = outputs[i]
+                        if isinstance(outputs_i, torch.Tensor):
+                            outputs_i = [outputs_i]
+                        self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
+                else:
 
-                        for i in range(len(outputs)):
-                            loss = self.pixel_loss(outputs[i], targets[i])
-                            self.val_losses.update(loss.item(), 1)
-                            outputs_i = outputs[i]
-                            if isinstance(outputs_i, torch.Tensor):
-                                outputs_i = [outputs_i]
-                            self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
-                    else:
-                        outputs = self.seg_net(*inputs)
+                    outputs = self.seg_net(*inputs,retSimMap=retSimMap)
 
-                        try:
-                            loss = self.pixel_loss(
-                                outputs, targets,
-                                gathered=self.configer.get('network', 'gathered')
-                            )
-                        except AssertionError as e:
-                            print(len(outputs), len(targets))
+                    if retSimMap:
+                        if j % 5 == 0:
+                            pred = torch.cat([out[1].cpu() for out in outputs],dim=0)
+                            attMaps = torch.cat([out[2].cpu() for out in outputs],dim=0)
+                            norm = torch.cat([out[3].cpu() for out in outputs],dim=0)
+
+                            Log.info("Saving att maps at batch {} of validation".format(j))
+                            torch.save(attMaps,"results/cityscapes/simMaps{}.pt".format(j))
+                            torch.save(pred,"results/cityscapes/pred{}.pt".format(j))
+                            torch.save(norm,"results/cityscapes/norm{}.pt".format(j))
+
+                            ori_img = [torch.tensor(np.array(dic["ori_img"])[:,:,::-1].copy()).permute(2,0,1).unsqueeze(0) for dic in data_dict["meta"]]
+                            ori_img = torch.cat(ori_img,dim=0)
+                            torch.save(ori_img,"results/cityscapes/img{}.pt".format(j))
+
+                        outputs = [out[:2] for out in outputs]
+
+                    try:
+                        loss = self.pixel_loss(
+                            outputs, targets,
+                            gathered=self.configer.get('network', 'gathered')
+                        )
+                    except AssertionError as e:
+                        print(len(outputs), len(targets))
 
 
-                        if not is_distributed():
-                            outputs = self.module_runner.gather(outputs)
-                        self.val_losses.update(loss.item(), batch_size)
-                        self.evaluator.update_score(outputs, data_dict['meta'])
-
-                except IndexError:
-                    for i in range(len(data_dict["meta"])):
-                        np.save("results/origTarget{}.npy".format(i),data_dict["meta"][i]["ori_target"])
-                        np.save("results/origImg{}.npy".format(i),data_dict["meta"][i]["ori_img"])
-                        np.save("results/target{}.npy".format(i),data_dict["labelmap"][i])
-                        np.save("results/img{}.npy".format(i),data_dict["img"][i])
-                    sys.exit(0)
+                    if not is_distributed():
+                        outputs = self.module_runner.gather(outputs)
+                    self.val_losses.update(loss.item(), batch_size)
+                    self.evaluator.update_score(outputs, data_dict['meta'])
 
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
@@ -358,8 +377,6 @@ class Trainer(object):
         #    self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
         #    return
 
-        Log.info("trainer l361 {}".format(self.configer.get('solver', 'max_iters')))
-
         while self.configer.get('iters') < self.configer.get('solver', 'max_iters'):
             self.__train(trial)
 
@@ -372,6 +389,9 @@ class Trainer(object):
             self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
 
         return self.configer.get("performance")
+
+    def val(self, data_loader=None,retSimMap=False):
+        return self.__val(data_loader,retSimMap)
 
     def summary(self):
         from lib.utils.summary import get_model_summary

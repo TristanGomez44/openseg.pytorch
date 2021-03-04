@@ -110,7 +110,7 @@ class HRNet_W48_OCR(nn.Module):
             ModuleHelper.BNReLU(512, bn_type=self.configer.get('network', 'bn_type')),
             )
         from lib.models.modules.spatial_ocr_block import SpatialGather_Module
-        self.ocr_gather_head = SpatialGather_Module(self.num_classes)
+        self.ocr_gather_head = SpatialGather_Module(self.num_classes,repVec=self.configer.get("rep_vec"))
         from lib.models.modules.spatial_ocr_block import SpatialOCR_Module
         self.ocr_distri_head = SpatialOCR_Module(in_channels=512,
                                                  key_channels=256,
@@ -126,7 +126,7 @@ class HRNet_W48_OCR(nn.Module):
             )
 
 
-    def forward(self, x_):
+    def forward(self, x_,retSimMap=False):
         x = self.backbone(x_)
         _, _, h, w = x[0].size()
 
@@ -140,7 +140,15 @@ class HRNet_W48_OCR(nn.Module):
 
         feats = self.conv3x3(feats)
 
-        context = self.ocr_gather_head(feats, out_aux)
+        ret = self.ocr_gather_head(feats, out_aux,retSimMap=retSimMap)
+
+        if retSimMap:
+            context = ret[0]
+            simMaps = ret[1]
+            norm = ret[2]
+        else:
+            context = ret
+
         feats = self.ocr_distri_head(feats, context)
 
         out = self.cls_head(feats)
@@ -148,7 +156,11 @@ class HRNet_W48_OCR(nn.Module):
         out_aux = F.interpolate(out_aux, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
 
         out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
-        return out_aux, out
+
+        if retSimMap:
+            return out_aux, out, simMaps,norm
+        else:
+            return out_aux, out
 
 class HRNet_W48_OCR_B(nn.Module):
     """

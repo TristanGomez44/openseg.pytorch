@@ -140,15 +140,7 @@ class FSOhemCELoss(nn.Module):
         mask = target.contiguous().view(-1,) != self.ignore_label
         sort_prob, sort_indices = prob.contiguous().view(-1,)[mask].contiguous().sort()
 
-        try:
-            min_threshold = sort_prob[min(self.min_kept, sort_prob.numel() - 1)]
-        except IndexError:
-            print("prob_out",prob_out.shape)
-            print("prob",prob.shape)
-            print("sort_prob",sort_prob.shape)
-            print("target",target.shape)
-            print("target.unique()",target.unique())
-            raise IndexError()
+        min_threshold = sort_prob[min(self.min_kept, sort_prob.numel() - 1)]
 
         threshold = max(min_threshold, self.thresh)
         loss_matirx = self.ce_loss(predict, target).contiguous().view(-1,)
@@ -171,7 +163,7 @@ class FSAuxOhemCELoss(nn.Module):
             self.ohem_ce_loss = FSOhemCELoss(self.configer)
         else:
             assert self.configer.get('loss', 'loss_type') == 'fs_auxslowohemce_loss'
-            self.ohem_ce_loss = FSSlowOhemCELoss(self.configer)
+            self.ohem_ce_loss = FSSlowzOhemCELoss(self.configer)
 
     def forward(self, inputs, targets, **kwargs):
         aux_out, seg_out = inputs
@@ -179,6 +171,18 @@ class FSAuxOhemCELoss(nn.Module):
         aux_loss = self.ce_loss(aux_out, targets)
         loss = self.configer.get('network', 'loss_weights')['seg_loss'] * seg_loss
         loss = loss + self.configer.get('network', 'loss_weights')['aux_loss'] * aux_loss
+
+        if kwargs["teach"] is not None:
+            tea_out = torch.cat([elem[1] for elem in kwargs["teach"]],dim=0)
+            seg_out = torch.cat([elem.unsqueeze(0) for elem in seg_out],dim=0)
+
+            tea_out = tea_out.permute(0,2,3,1).reshape(tea_out.size(0)*tea_out.size(2)*tea_out.size(3),tea_out.size(1))
+            seg_out = seg_out.permute(0,2,3,1).reshape(seg_out.size(0)*seg_out.size(2)*seg_out.size(3),seg_out.size(1))
+            coeff = self.configer.get("teacher_interp")
+            temp = self.configer.get("teacher_temp")
+            kl = F.kl_div(F.log_softmax(tea_out/temp, dim=1),F.softmax(seg_out/temp, dim=1),reduction="batchmean")
+            loss = (kl*coeff*temp*temp+loss*(1-coeff))
+
         return loss
 
 
@@ -194,8 +198,20 @@ class FSAuxCELoss(nn.Module):
         aux_loss = self.ce_loss(aux_out, targets)
         loss = self.configer.get('network', 'loss_weights')['seg_loss'] * seg_loss
         loss = loss + self.configer.get('network', 'loss_weights')['aux_loss'] * aux_loss
-        return loss
 
+        if kwargs["teach"] is not None:
+            tea_out = torch.cat([elem[1] for elem in kwargs["teach"]],dim=0)
+            seg_out = torch.cat([elem.unsqueeze(0) for elem in seg_out],dim=0)
+
+            tea_out = tea_out.permute(0,2,3,1).reshape(tea_out.size(0)*tea_out.size(2)*tea_out.size(3),tea_out.size(1))
+            seg_out = seg_out.permute(0,2,3,1).reshape(seg_out.size(0)*seg_out.size(2)*seg_out.size(3),seg_out.size(1))
+
+            temp = self.configer.get("teacher_temp")
+            coeff = self.configer.get("teacher_interp")
+            kl = F.kl_div(F.log_softmax(tea_out/temp, dim=1),F.softmax(seg_out/temp, dim=1),reduction="batchmean")
+            loss = (kl*coeff*temp*temp+loss*(1-coeff))
+
+        return loss
 
 class SegFixLoss(nn.Module):
     """

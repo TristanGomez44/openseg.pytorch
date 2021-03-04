@@ -47,7 +47,7 @@ class SpatialGather_Module(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.repVec = repVec
 
-    def forward(self, feats, probs, gt_probs=None):
+    def forward(self, feats, probs, gt_probs=None,retSimMap=False):
         if self.use_gt and gt_probs is not None:
             gt_probs = label_to_onehot(gt_probs.squeeze(1).type(torch.cuda.LongTensor), probs.size(1))
             batch_size, c, h, w = gt_probs.size(0), gt_probs.size(1), gt_probs.size(2), gt_probs.size(3)
@@ -67,6 +67,7 @@ class SpatialGather_Module(nn.Module):
                 ocr_context = torch.matmul(probs, feats).permute(0, 2, 1).unsqueeze(3)# batch x k x c
                 return ocr_context
             else:
+                origFeat = feats.clone()
                 batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
                 probs = probs.view(batch_size, c, -1)
                 _,max_inds = probs.max(dim=-1)
@@ -77,6 +78,7 @@ class SpatialGather_Module(nn.Module):
                 norm = torch.sqrt(torch.pow(feats,2).sum(dim=-1,keepdim=True))
 
                 allCont = []
+                simMaps = []
                 for i in range(max_inds.size(1)):
                     rawRepVec = feats[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
                     rawRepVecNorm = norm[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
@@ -102,11 +104,18 @@ class SpatialGather_Module(nn.Module):
                     ocr_context = ocr_context.permute(0,2,1).unsqueeze(3)
 
                     allCont.append(ocr_context)
+                    simMaps.append(weights.view(batch_size,weights.size(1),h,w))
 
                     # batch x c x k x 1
 
                 ocr_context = torch.cat(allCont,dim=2)
-                return ocr_context
+
+                if retSimMap:
+                    norm = torch.sqrt(torch.pow(origFeat,2).sum(dim=1,keepdim=True))
+                    simMaps = torch.cat(simMaps,dim=1)
+                    return ocr_context,simMaps,norm
+                else:
+                    return ocr_context
 
 class PyramidSpatialGather_Module(nn.Module):
     """

@@ -5,7 +5,7 @@
 ## yuyua@microsoft.com
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -16,7 +16,7 @@ from __future__ import print_function
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # Our approaches including FCN baseline, HRNet, OCNet, ISA, OCR
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# FCN baseline 
+# FCN baseline
 from lib.models.nets.fcnet import FcnNet
 
 # OCR
@@ -52,10 +52,10 @@ SEG_MODEL_DICT = {
     # OCR series
     'spatial_ocrnet': SpatialOCRNet,
     'spatial_asp_ocrnet': ASPOCRNet,
-    # OCR series with ground-truth   
+    # OCR series with ground-truth
     'ideal_spatial_ocrnet': IdealSpatialOCRNet,
     'ideal_spatial_ocrnet_b': IdealSpatialOCRNetB,
-    'ideal_spatial_ocrnet_c': IdealSpatialOCRNetC, 
+    'ideal_spatial_ocrnet_c': IdealSpatialOCRNetC,
     'ideal_gather_ocrnet': IdealGatherOCRNet,
     'ideal_distribute_ocrnet': IdealDistributeOCRNet,
     # HRNet series
@@ -66,7 +66,7 @@ SEG_MODEL_DICT = {
     # CE2P series
     'ce2p_asp_ocrnet': CE2P_ASPOCR,
     'ce2p_ocrnet': CE2P_OCRNet,
-    'ce2p_ideal_ocrnet': CE2P_IdealOCRNet, 
+    'ce2p_ideal_ocrnet': CE2P_IdealOCRNet,
     # baseline series
     'fcnet': FcnNet,
 }
@@ -76,13 +76,19 @@ class ModelManager(object):
     def __init__(self, configer):
         self.configer = configer
 
-    def semantic_segmentor(self):
+    def semantic_segmentor(self,teach=False):
         model_name = self.configer.get('network', 'model_name')
 
         if model_name not in SEG_MODEL_DICT:
             Log.error('Model: {} not valid!'.format(model_name))
             exit(1)
 
+        if teach:
+            self.configer.update(["rep_vec"],False)
+
         model = SEG_MODEL_DICT[model_name](self.configer)
+
+        if teach:
+            self.configer.update(["rep_vec"],True)
 
         return model

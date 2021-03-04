@@ -28,22 +28,41 @@ from lib.utils.tools.configer import Configer
 import optuna
 import gc
 import sqlite3
-
+import numpy as np
 def run(configer,trial):
 
     if configer.get('phase') == 'train':
         configer.update(["train","batch_size"],trial.suggest_int("batch_size",4,configer.get("max_batch_size"),step=1))
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",0.0001, 0.0019, step=0.0003))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
+
+        configer.get("lr","step")["gamma"] = trial.suggest_float("gamma",0.3,0.9,step=0.2)
+        configer.get("lr","step")["step_size"] = trial.suggest_int("step_size",50,400,step=50)
+
         configer.update(["optim","optim_method"],trial.suggest_categorical("optim_method", ["sgd","adam"]))
+        configer.update(["lr","nbb_mult"],trial.suggest_float("nbb_mult",0.25,4,step=0.25))
 
         if configer.get("optim","optim_method") == "sgd":
             configer.get("optim","sgd")["weight_decay"] = trial.suggest_float("weight_decay",0.00001, 0.0002, step=0.00003)
+            configer.get("optim","sgd")["nesterov"] = trial.suggest_categorical("nesterov",[False,True])
+
         else:
             configer.get("optim","adam")["weight_decay"] = trial.suggest_float("weight_decay",0.0001, 0.0010, step=0.0002)
 
         configer.get("network","loss_weights")["aux_loss"] = trial.suggest_float("aux_loss",0.2, 0.8, step=0.2)
         configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, step=0.5)
+
+        if configer.get("network","use_teach"):
+            configer.add(["teacher_temp"],trial.suggest_float("teacher_temp", 1, 21, step=5))
+            configer.add(["teacher_interp"],trial.suggest_float("teacher_interp", 0.1, 1, step=0.1))
+        else:
+            configer.add(["teacher_interp"],0)
+
+        lossType = trial.suggest_categorical("loss_type", ["fs_auxce_loss","fs_auxohemce_loss "])
+        lossType = lossType.replace(" ","")
+        configer.update(["loss","loss_type"],lossType)
+
+        configer.add(["rep_vec"],True)
 
     if not configer.exists("trial_nb"):
         configer.add(["trial_nb"],trial.number)
@@ -54,7 +73,6 @@ def run(configer,trial):
     if configer.get('method') == 'fcn_segmentor':
         if configer.get('phase') == 'train':
             from segmentor.trainer import Trainer
-            Log.info("main l57 {}".format(configer.get('solver', 'max_iters')))
             model = Trainer(configer)
         elif configer.get('phase') == 'test':
             from segmentor.tester import Tester
@@ -67,7 +85,6 @@ def run(configer,trial):
         exit(1)
 
     if configer.get('phase') == 'train':
-        Log.info("main l70 {}".format(configer.get('solver', 'max_iters')))
         miou = model.train(trial)
         return miou
 
@@ -90,6 +107,26 @@ def str2bool(v):
     else:
         raise argparse.ArgumentTypeError('Unsupported value encountered.')
 
+def getBestTrial(exp_id,model_id,trialNb=None):
+    print("results/{}/{}_hypSearch.db".format(exp_id,model_id))
+    con = sqlite3.connect("results/{}/{}_hypSearch.db".format(exp_id,model_id))
+    curr = con.cursor()
+
+    curr.execute('SELECT trial_id,value FROM trials WHERE study_id == 1')
+    query_res = curr.fetchall()
+
+    query_res = list(filter(lambda x:not x[1] is None,query_res))
+
+    trialIds = [id_value[0] for id_value in query_res]
+    values = [id_value[1] for id_value in query_res]
+
+    if not trialNb is None:
+        trialIds = trialIds[:trialNb]
+        values = values[:trialNb]
+
+    bestTrial = trialIds[np.array(values).argmax()]
+
+    return bestTrial
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -180,6 +217,9 @@ if __name__ == "__main__":
     parser.add_argument('--is_warm', type=str2bool, nargs='?', default=False,
                         dest='lr:is_warm', help='Whether to warm training.')
 
+    parser.add_argument('--use_teach', type=str2bool,default=False,
+                        dest="network:use_teach")
+
     # ***********  Params for display.  **********
     parser.add_argument('--max_epoch', default=None, type=int,
                         dest='solver:max_epoch', help='The max epoch of training.')
@@ -221,9 +261,9 @@ if __name__ == "__main__":
     parser.add_argument('--distributed', action='store_true', dest='distributed', help='Use multi-processing training.')
     parser.add_argument('--use_ground_truth', action='store_true', dest='use_ground_truth', help='Use ground truth for training.')
 
-    parser.add_argument('--exp_id', type=str,default="default")
+    parser.add_argument('--exp_id', type=str,default="cityscapes")
     parser.add_argument('--max_batch_size', type=int,default=10)
-    parser.add_argument('--optuna_trial_nb', type=int,default=25)
+    parser.add_argument('--optuna_trial_nb', type=int,default=150)
 
     parser.add_argument('--val_on_test', type=str2bool,default=False)
 
@@ -303,3 +343,17 @@ if __name__ == "__main__":
                     configer.update(["max_batch_size"],old_max_bs-1)
                 else:
                     raise RuntimeError(e)
+
+    from segmentor.trainer import Trainer
+    model = Trainer(configer)
+
+    model_id = configer.get("network","model_name")
+    bestTrial = getBestTrial("cityscapes",model_id+"_")
+    bestWeights = "checkpoints/cityscapes/{}__trial{}_max_performance.pth".format(model_id,bestTrial)
+    dic = torch.load(bestWeights)
+    model.configer.resume(dic['config_dict'])
+    model.seg_net.load_state_dict(dic["state_dict"])
+
+    Log.info("loading {}".format(bestWeights))
+
+    model.val(model.data_loader.get_valloader(dataset='val'),retSimMap=True)
