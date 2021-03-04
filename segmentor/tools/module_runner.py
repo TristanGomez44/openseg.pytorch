@@ -155,7 +155,7 @@ class ModuleRunner(object):
             err_msg.append('unexpected key in source state_dict: {}\n'.format(', '.join(unexpected_keys)))
         if missing_keys:
             # we comment this to fine-tune the models with some missing keys.
-            err_msg.append('missing keys in source state_dict: {}\n'.format(', '.join(missing_keys)))
+            err_msg.append('missing keys in source state_dict: {} ...\n'.format(', '.join(list(missing_keys)[:10])))
         err_msg = '\n'.join(err_msg)
         if err_msg:
             if strict:
