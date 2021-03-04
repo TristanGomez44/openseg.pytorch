@@ -17,13 +17,13 @@ CONFIGS_TEST="configs/cityscapes/H_48_D_4_TEST.json"
 
 MODEL_NAME="hrnet_w48_ocr"
 LOSS_TYPE="fs_auxce_loss"
-CHECKPOINTS_NAME="${MODEL_NAME}_longer"$2
+CHECKPOINTS_NAME="${MODEL_NAME}_teach"$2
 LOG_FILE="./log/cityscapes/${CHECKPOINTS_NAME}.log"
 echo "Logging to $LOG_FILE"
 mkdir -p `dirname $LOG_FILE`
 
 PRETRAINED_MODEL="./pretrained_model/hrnet_w48_ocr_1_latest.pth"
-MAX_ITERS=4000
+MAX_ITERS=1000
 BATCHSIZE=8
 
 
@@ -43,6 +43,7 @@ if [ "$1"x == "train"x ]; then
                        --checkpoints_name ${CHECKPOINTS_NAME} \
                        --resume  ${PRETRAINED_MODEL} \
                        --exp_id cityscapes \
+                       --use_teach True \
                        2>&1 | tee ${LOG_FILE}
 
 
