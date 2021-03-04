@@ -36,7 +36,7 @@ if [ "$1"x == "train"x ]; then
                        --log_to_file n \
                        --backbone ${BACKBONE} \
                        --model_name ${MODEL_NAME} \
-                       --gpu 0 1 \
+                       --gpu 0 1 2 3 \
                        --data_dir ${DATA_DIR} \
                        --loss_type ${LOSS_TYPE} \
                        --max_iters ${MAX_ITERS} \
@@ -44,6 +44,7 @@ if [ "$1"x == "train"x ]; then
                        --resume  ${PRETRAINED_MODEL} \
                        --exp_id cityscapes \
                        --use_teach True \
+                       --max_batch_size 24
                        2>&1 | tee ${LOG_FILE}
 
 
