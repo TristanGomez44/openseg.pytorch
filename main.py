@@ -32,7 +32,7 @@ import numpy as np
 def run(configer,trial):
 
     if configer.get('phase') == 'train':
-        configer.update(["train","batch_size"],trial.suggest_int("batch_size",4,configer.get("max_batch_size"),step=1))
+        configer.update(["train","batch_size"],trial.suggest_int("batch_size",2*torch.cuda.device_count(),configer.get("max_batch_size"),step=1))
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",0.0001, 0.0019, step=0.0003))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
 
