@@ -18,6 +18,7 @@ from torch.nn import functional as F
 
 from lib.models.tools.module_helper import ModuleHelper
 
+from lib.utils.tools.logger import Logger as Log
 
 def label_to_onehot(gt, num_classes, ignore_index=-1):
     '''
@@ -47,7 +48,7 @@ class SpatialGather_Module(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.repVec = repVec
 
-    def forward(self, feats, probs, gt_probs=None,retSimMap=False):
+    def forward(self, feats, probs, gt_probs=None,retSimMap=False,interp_ratio=1):
         if self.use_gt and gt_probs is not None:
             gt_probs = label_to_onehot(gt_probs.squeeze(1).type(torch.cuda.LongTensor), probs.size(1))
             batch_size, c, h, w = gt_probs.size(0), gt_probs.size(1), gt_probs.size(2), gt_probs.size(3)
@@ -59,56 +60,22 @@ class SpatialGather_Module(nn.Module):
             return ocr_context
         else:
             if not self.repVec:
-                batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
-                probs = probs.view(batch_size, c, -1)
-                feats = feats.view(batch_size, feats.size(1), -1)
-                feats = feats.permute(0, 2, 1) # batch x hw x c
-                probs = F.softmax(self.scale * probs, dim=2)# batch x c x hw
-                ocr_context = torch.matmul(probs, feats).permute(0, 2, 1).unsqueeze(3)# batch x k x c
-                return ocr_context
+                return self.regularCont(probs,feats)
             else:
-                origFeat = feats.clone()
-                batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
-                probs = probs.view(batch_size, c, -1)
-                _,max_inds = probs.max(dim=-1)
-                feats = feats.view(batch_size, feats.size(1), -1)
 
-                feats = feats.permute(0, 2, 1) # batch x hw x c
+                if interp_ratio > 0:
+                    origFeat = feats.clone()
+                    ocr_context,simMaps,norm = self.repVecCont(probs,feats)
+                else:
+                    ocr_context,simMaps,norm = None,None,None
 
-                norm = torch.sqrt(torch.pow(feats,2).sum(dim=-1,keepdim=True))
+                if interp_ratio != 1:
+                    reg_ocr_context = self.regularCont(probs,feats)
 
-                allCont = []
-                simMaps = []
-                for i in range(max_inds.size(1)):
-                    rawRepVec = feats[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
-                    rawRepVecNorm = norm[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
-
-                    #rawRepVec batch x k x c
-                    #feats     batch x hw x c
-
-                    #rawRepVec batch x k x 1  x c
-                    #feats     batch x 1 x hw x c
-                    #res       batch x k x hw x c
-
-                    prod = (rawRepVec.unsqueeze(2)*feats.unsqueeze(1)).sum(dim=-1,keepdim=True)
-                    cos = prod/(rawRepVecNorm.unsqueeze(2)*norm.unsqueeze(1))
-
-                    #weights batch x k x hw x 1
-                    #feats batch x 1 x hw x c
-
-                    weights = cos/cos.sum(dim=2,keepdim=True)
-                    ocr_context = (feats.unsqueeze(1)*weights).sum(dim=2)
-
-                    # batch x k x c
-
-                    ocr_context = ocr_context.permute(0,2,1).unsqueeze(3)
-
-                    allCont.append(ocr_context)
-                    simMaps.append(weights.view(batch_size,weights.size(1),h,w))
-
-                    # batch x c x k x 1
-
-                ocr_context = torch.cat(allCont,dim=2)
+                    if interp_ratio > 0:
+                        ocr_context = interp_ratio*ocr_context + (1-interp_ratio)*reg_ocr_context
+                    else:
+                        ocr_context = reg_ocr_context
 
                 if retSimMap:
                     norm = torch.sqrt(torch.pow(origFeat,2).sum(dim=1,keepdim=True))
@@ -116,6 +83,61 @@ class SpatialGather_Module(nn.Module):
                     return ocr_context,simMaps,norm
                 else:
                     return ocr_context
+
+    def regularCont(self,probs,feats):
+        batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
+        probs = probs.view(batch_size, c, -1)
+        feats = feats.view(batch_size, feats.size(1), -1)
+        feats = feats.permute(0, 2, 1) # batch x hw x c
+        probs = F.softmax(self.scale * probs, dim=2)# batch x c x hw
+        ocr_context = torch.matmul(probs, feats).permute(0, 2, 1).unsqueeze(3)# batch x k x c
+        return ocr_context
+
+    def repVecCont(self,probs,feats):
+
+        batch_size, c, h, w = probs.size(0), probs.size(1), probs.size(2), probs.size(3)
+        probs = probs.view(batch_size, c, -1)
+        _,max_inds = probs.max(dim=-1)
+        feats = feats.view(batch_size, feats.size(1), -1)
+
+        feats = feats.permute(0, 2, 1) # batch x hw x c
+
+        norm = torch.sqrt(torch.pow(feats,2).sum(dim=-1,keepdim=True))
+
+        allCont = []
+        simMaps = []
+        for i in range(max_inds.size(1)):
+            rawRepVec = feats[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
+            rawRepVecNorm = norm[torch.arange(batch_size).unsqueeze(1),max_inds[:,i:i+1]]
+
+            #rawRepVec batch x k x c
+            #feats     batch x hw x c
+
+            #rawRepVec batch x k x 1  x c
+            #feats     batch x 1 x hw x c
+            #res       batch x k x hw x c
+
+            prod = (rawRepVec.unsqueeze(2)*feats.unsqueeze(1)).sum(dim=-1,keepdim=True)
+            cos = prod/(rawRepVecNorm.unsqueeze(2)*norm.unsqueeze(1))
+
+            #weights batch x k x hw x 1
+            #feats batch x 1 x hw x c
+
+            weights = cos/cos.sum(dim=2,keepdim=True)
+            ocr_context = (feats.unsqueeze(1)*weights).sum(dim=2)
+
+            # batch x k x c
+
+            ocr_context = ocr_context.permute(0,2,1).unsqueeze(3)
+
+            allCont.append(ocr_context)
+            simMaps.append(weights.view(batch_size,weights.size(1),h,w))
+
+            # batch x c x k x 1
+
+        ocr_context = torch.cat(allCont,dim=2)
+
+        return ocr_context,simMaps,norm
 
 class PyramidSpatialGather_Module(nn.Module):
     """

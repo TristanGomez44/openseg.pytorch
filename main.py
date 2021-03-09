@@ -33,6 +33,7 @@ def run(configer,trial):
 
     if configer.get('phase') == 'train':
         configer.update(["train","batch_size"],trial.suggest_int("batch_size",2*torch.cuda.device_count(),configer.get("max_batch_size"),step=1))
+
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",0.0001, 0.0019, step=0.0003))
         configer.update(["lr","lr_policy"],trial.suggest_categorical("lr_policy",["step","lambda_poly"]))
 
@@ -201,6 +202,9 @@ if __name__ == "__main__":
     parser.add_argument('--loss_balance', type=str2bool, nargs='?', default=False,
                         dest='network:loss_balance', help='Whether to balance GPU usage.')
 
+    parser.add_argument('--freeze_feature', type=str2bool, default=False,
+                        dest='network:freeze_feature', help='To freeze the feature extraction model.')
+
     # ***********  Params for solver.  **********
     parser.add_argument('--optim_method', default=None, type=str,
                         dest='optim:optim_method', help='The optim method that used.')
@@ -219,6 +223,8 @@ if __name__ == "__main__":
 
     parser.add_argument('--use_teach', type=str2bool,default=False,
                         dest="network:use_teach")
+    parser.add_argument('--interp', type=str2bool,default=False,
+                        dest="network:interp")
 
     # ***********  Params for display.  **********
     parser.add_argument('--max_epoch', default=None, type=int,
@@ -263,7 +269,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--exp_id', type=str,default="cityscapes")
     parser.add_argument('--max_batch_size', type=int,default=10)
-    parser.add_argument('--optuna_trial_nb', type=int,default=150)
+    parser.add_argument('--optuna_trial_nb', type=int,default=300)
 
     parser.add_argument('--val_on_test', type=str2bool,default=False)
 

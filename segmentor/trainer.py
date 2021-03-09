@@ -39,6 +39,10 @@ from lib.utils.distributed import get_world_size, get_rank, is_distributed
 import cv2
 import sys
 
+class NoSplit():
+    def __init__(self,obj):
+        self.obj = obj
+
 class Trainer(object):
     """
       The class for Pose Estimation. Include train, val, val & predict.
@@ -74,10 +78,14 @@ class Trainer(object):
         self.seg_net = self.model_manager.semantic_segmentor()
         self.seg_net = self.module_runner.load_net(self.seg_net)
 
+        if self.configer.get("network","freeze_feature"):
+            self.seg_net.module.backbone.requires_grad = False
+
         if self.configer.get("teacher_interp") > 0:
             self.teach = self.model_manager.semantic_segmentor(teach=True)
             self.teach = self.module_runner.load_net(self.teach)
             self.teach.eval()
+            self.teachDic = {}
 
         Log.info('Params Group Method: {}'.format(self.configer.get('optim', 'group_method')))
         if self.configer.get('optim', 'group_method') == 'decay':
@@ -163,7 +171,13 @@ class Trainer(object):
             self.data_time.update(time.time() - start_time)
 
             foward_start_time = time.time()
-            outputs = self.seg_net(*inputs)
+
+            if self.configer.get("network","interp"):
+                kwargs = {"interp_ratio" : self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')}
+            else:
+                kwargs = {}
+
+            outputs = self.seg_net(*inputs,**kwargs)
             self.foward_time.update(time.time() - foward_start_time)
 
             if self.configer.get("teacher_interp") > 0:
@@ -192,7 +206,8 @@ class Trainer(object):
                 backward_loss = loss
                 display_loss = reduce_tensor(backward_loss) / get_world_size()
             else:
-                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'),teach=teach_outputs)
+                backward_loss = display_loss = self.pixel_loss(outputs, targets, gathered=self.configer.get('network', 'gathered'),\
+                                                                    teach_outputs=NoSplit(teach_outputs))
 
             self.train_losses.update(display_loss.item(), batch_size)
             self.loss_time.update(time.time() - loss_start_time)
@@ -260,6 +275,10 @@ class Trainer(object):
         start_time = time.time()
         replicas = self.evaluator.prepare_validaton()
 
+        if self.configer.get("network","interp"):
+            ratio = self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')
+            Log.info("Interpolation ratio : {}".format(ratio))
+
         data_loader = self.val_loader if data_loader is None else data_loader
         for j, data_dict in enumerate(data_loader):
             if j % 10 == 0:
@@ -303,7 +322,14 @@ class Trainer(object):
                         self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
                 else:
 
-                    outputs = self.seg_net(*inputs,retSimMap=retSimMap)
+                    kwargs = {"retSimMap":retSimMap}
+
+                    if self.configer.get("network","interp"):
+                        kwargs["interp_ratio"] = self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')
+                    else:
+                        kwargs["interp_ratio"] = 1
+
+                    outputs = self.seg_net(*inputs,**kwargs)
 
                     if retSimMap:
                         if j % 5 == 0:
