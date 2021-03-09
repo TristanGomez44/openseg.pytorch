@@ -72,7 +72,7 @@ class ModuleRunner(object):
 
         return DataParallelModel(net, gather_=self.configer.get('network', 'gathered'))
 
-    def load_net(self, net):
+    def load_net(self, net,make_parallel=True):
         net = self.to_device(net)
         net = self._make_parallel(net)
 
