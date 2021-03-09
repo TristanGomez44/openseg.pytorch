@@ -172,19 +172,31 @@ class FSAuxOhemCELoss(nn.Module):
         loss = self.configer.get('network', 'loss_weights')['seg_loss'] * seg_loss
         loss = loss + self.configer.get('network', 'loss_weights')['aux_loss'] * aux_loss
 
-        if kwargs["teach"] is not None:
-            tea_out = torch.cat([elem[1] for elem in kwargs["teach"]],dim=0)
-            seg_out = torch.cat([elem.unsqueeze(0) for elem in seg_out],dim=0)
-
-            tea_out = tea_out.permute(0,2,3,1).reshape(tea_out.size(0)*tea_out.size(2)*tea_out.size(3),tea_out.size(1))
-            seg_out = seg_out.permute(0,2,3,1).reshape(seg_out.size(0)*seg_out.size(2)*seg_out.size(3),seg_out.size(1))
-            coeff = self.configer.get("teacher_interp")
-            temp = self.configer.get("teacher_temp")
-            kl = F.kl_div(F.log_softmax(tea_out/temp, dim=1),F.softmax(seg_out/temp, dim=1),reduction="batchmean")
-            loss = (kl*coeff*temp*temp+loss*(1-coeff))
+        if self.configer.get("teacher_interp") > 0 and self.training:
+            loss = computeTeach(kwargs["teach_outputs"].obj,seg_out,self.configer,loss)
 
         return loss
 
+def computeTeach(tea_out,seg_out,configer,loss):
+
+    tea_out_list = []
+    for elem in tea_out:
+        if elem[1].device == seg_out.device:
+            tea_out_list.append(elem[1])
+
+    tea_out = torch.cat(tea_out_list,dim=0)
+
+    seg_out = torch.cat([elem.unsqueeze(0) for elem in seg_out],dim=0)
+
+    tea_out = tea_out.permute(0,2,3,1).reshape(tea_out.size(0)*tea_out.size(2)*tea_out.size(3),tea_out.size(1))
+    seg_out = seg_out.permute(0,2,3,1).reshape(seg_out.size(0)*seg_out.size(2)*seg_out.size(3),seg_out.size(1))
+
+    temp = configer.get("teacher_temp")
+    coeff = configer.get("teacher_interp")
+
+    kl = F.kl_div(F.log_softmax(tea_out/temp, dim=1),F.softmax(seg_out/temp, dim=1),reduction="batchmean")
+    loss = (kl*coeff*temp*temp+loss*(1-coeff))
+    return loss
 
 class FSAuxCELoss(nn.Module):
     def __init__(self, configer=None):
@@ -199,17 +211,8 @@ class FSAuxCELoss(nn.Module):
         loss = self.configer.get('network', 'loss_weights')['seg_loss'] * seg_loss
         loss = loss + self.configer.get('network', 'loss_weights')['aux_loss'] * aux_loss
 
-        if kwargs["teach"] is not None:
-            tea_out = torch.cat([elem[1] for elem in kwargs["teach"]],dim=0)
-            seg_out = torch.cat([elem.unsqueeze(0) for elem in seg_out],dim=0)
-
-            tea_out = tea_out.permute(0,2,3,1).reshape(tea_out.size(0)*tea_out.size(2)*tea_out.size(3),tea_out.size(1))
-            seg_out = seg_out.permute(0,2,3,1).reshape(seg_out.size(0)*seg_out.size(2)*seg_out.size(3),seg_out.size(1))
-
-            temp = self.configer.get("teacher_temp")
-            coeff = self.configer.get("teacher_interp")
-            kl = F.kl_div(F.log_softmax(tea_out/temp, dim=1),F.softmax(seg_out/temp, dim=1),reduction="batchmean")
-            loss = (kl*coeff*temp*temp+loss*(1-coeff))
+        if self.configer.get("teacher_interp") > 0 and self.training:
+            loss = computeTeach(kwargs["teach_outputs"].obj,seg_out,self.configer,loss)
 
         return loss
 

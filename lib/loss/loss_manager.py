@@ -5,7 +5,7 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -38,7 +38,7 @@ class LossManager(object):
         if is_distributed():
             Log.info('use distributed loss')
             return loss
-            
+
         if self.configer.get('network', 'loss_balance') and len(self.configer.get('gpu')) > 1:
             Log.info('use DataParallelCriterion loss')
             from lib.extensions.parallel.data_parallel import DataParallelCriterion
@@ -48,11 +48,10 @@ class LossManager(object):
 
     def get_seg_loss(self, loss_type=None):
         key = self.configer.get('loss', 'loss_type') if loss_type is None else loss_type
+
         if key not in SEG_LOSS_DICT:
             Log.error('Loss: {} not valid!'.format(key))
             exit(1)
         Log.info('use loss: {}.'.format(key))
         loss = SEG_LOSS_DICT[key](self.configer)
         return self._parallel(loss)
-
-
