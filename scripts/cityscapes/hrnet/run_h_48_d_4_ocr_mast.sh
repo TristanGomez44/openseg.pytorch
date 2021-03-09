@@ -44,7 +44,7 @@ if [ "$1"x == "train"x ]; then
                        --resume  ${PRETRAINED_MODEL} \
                        --exp_id cityscapes \
                        --use_teach True \
-                       --max_batch_size 24
+                       --max_batch_size 20
                        2>&1 | tee ${LOG_FILE}
 
 
