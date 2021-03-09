@@ -126,7 +126,8 @@ class HRNet_W48_OCR(nn.Module):
             )
 
 
-    def forward(self, x_,retSimMap=False):
+    def forward(self, x_,retSimMap=False,interp_ratio=1):
+
         x = self.backbone(x_)
         _, _, h, w = x[0].size()
 
@@ -140,7 +141,7 @@ class HRNet_W48_OCR(nn.Module):
 
         feats = self.conv3x3(feats)
 
-        ret = self.ocr_gather_head(feats, out_aux,retSimMap=retSimMap)
+        ret = self.ocr_gather_head(feats, out_aux,retSimMap=retSimMap,interp_ratio=interp_ratio)
 
         if retSimMap:
             context = ret[0]
