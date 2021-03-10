@@ -63,8 +63,6 @@ def run(configer,trial):
         lossType = lossType.replace(" ","")
         configer.update(["loss","loss_type"],lossType)
 
-        configer.add(["rep_vec"],True)
-
     if not configer.exists("trial_nb"):
         configer.add(["trial_nb"],trial.number)
     else:
@@ -272,6 +270,7 @@ if __name__ == "__main__":
     parser.add_argument('--optuna_trial_nb', type=int,default=300)
 
     parser.add_argument('--val_on_test', type=str2bool,default=False)
+    parser.add_argument('--rep_vec', type=str2bool,default=True)
 
     parser.add_argument('REMAIN', nargs='*')
 
@@ -351,15 +350,22 @@ if __name__ == "__main__":
                     raise RuntimeError(e)
 
     from segmentor.trainer import Trainer
-    model = Trainer(configer)
+
+    Log.info("self.configer.get('network','interp') {}".format(configer.get("network","interp")))
 
     model_id = configer.get("network","model_name")
     bestTrial = getBestTrial("cityscapes",model_id+"_")
-    bestWeights = "checkpoints/cityscapes/{}__trial{}_max_performance.pth".format(model_id,bestTrial)
+    configer.add(["trial_nb"],bestTrial)
+    bestWeights = "checkpoints/cityscapes/{}__trial{}_max_performance.pth".format(model_id,bestTrial-1)
     dic = torch.load(bestWeights)
+
+    configer.add(["teacher_interp"],0)
+    model = Trainer(configer)
     model.configer.resume(dic['config_dict'])
     model.seg_net.load_state_dict(dic["state_dict"])
 
     Log.info("loading {}".format(bestWeights))
 
-    model.val(model.data_loader.get_valloader(dataset='val'),retSimMap=True)
+    model.configer.add(["teacher_interp"],0)
+    model.configer.add(["network","interp"],False)
+    model.val(model.data_loader.get_valloader(dataset='val'),retSimMap=True,printallIoU=True,endEval=True)

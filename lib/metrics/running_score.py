@@ -5,7 +5,7 @@
 ## Copyright (c) 2019
 ##
 ## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree 
+## LICENSE file in the root directory of this source tree
 ##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 
@@ -32,7 +32,7 @@ class SimpleCounterRunningScore(object):
 
     def reset(self):
         self.correct_count = self.total_count = 0
-        
+
 
 class MultiLabelRunningScore(object):
     """
@@ -108,14 +108,14 @@ class RunningScore(object):
         TN, FN, FP, TP = self.confusion_matrix.flatten()
         precision = TP / (TP + FP)
         recall = TP / (TP + FN)
-        return 2 / (1 / precision + 1 / recall), precision, recall       
+        return 2 / (1 / precision + 1 / recall), precision, recall
 
     def _fast_hist(self, label_true, label_pred, n_class):
         mask = (label_true >= 0) & (label_true < n_class)
 
         if self.ignore_index is not None:
             mask = mask & (label_true != self.ignore_index)
-        
+
         hist = np.bincount(
             n_class * label_true[mask].astype(int) +
             label_pred[mask], minlength=n_class**2)
@@ -151,10 +151,13 @@ class RunningScore(object):
         fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
         cls_iu = dict(zip(range(self.n_classes), iu))
 
-        return acc, acc_cls, fwavacc, mean_iu, cls_iu
+        return acc, acc_cls, fwavacc, mean_iu, cls_iu, iu
 
     def get_mean_iou(self):
         return self._get_scores()[3]
+
+    def get_all_iou(self):
+        return self._get_scores()[5]
 
     def get_pixel_acc(self):
         return self._get_scores()[0]
@@ -164,4 +167,3 @@ class RunningScore(object):
 
     def reset(self):
         self.confusion_matrix = np.zeros((self.n_classes, self.n_classes))
-

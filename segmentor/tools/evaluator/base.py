@@ -46,6 +46,7 @@ class _BaseEvaluator:
             else:
                 if show_miou and hasattr(rs, 'get_mean_iou'):
                     meanIoU = rs.get_mean_iou()
+                    allIoU = rs.get_all_iou()
                     Log.info('Mean IOU: {}\n'.format(meanIoU))
                 Log.info('Pixel ACC: {}\n'.format(rs.get_pixel_acc()))
 
@@ -54,7 +55,7 @@ class _BaseEvaluator:
                         'F1 Score: {} Precision: {} Recall: {}\n'
                         .format(*rs.get_F1_score())
                     )
-        return meanIoU
+        return meanIoU,allIoU
 
     def prepare_validaton(self):
         """

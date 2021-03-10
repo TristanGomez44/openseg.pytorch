@@ -266,7 +266,7 @@ class Trainer(object):
 
         self.configer.plus_one('epoch')
 
-    def __val(self, data_loader=None,retSimMap=False):
+    def __val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=False):
         """
           Validation function during the train phase.
         """
@@ -276,8 +276,13 @@ class Trainer(object):
         replicas = self.evaluator.prepare_validaton()
 
         if self.configer.get("network","interp"):
-            ratio = self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')
+            if endEval:
+                ratio = 1
+            else:
+                ratio = self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')
             Log.info("Interpolation ratio : {}".format(ratio))
+        else:
+            ratio = 1
 
         data_loader = self.val_loader if data_loader is None else data_loader
         for j, data_dict in enumerate(data_loader):
@@ -323,11 +328,7 @@ class Trainer(object):
                 else:
 
                     kwargs = {"retSimMap":retSimMap}
-
-                    if self.configer.get("network","interp"):
-                        kwargs["interp_ratio"] = self.configer.get('iters') * 1.0/self.configer.get('solver', 'max_iters')
-                    else:
-                        kwargs["interp_ratio"] = 1
+                    kwargs["interp_ratio"] = ratio
 
                     outputs = self.seg_net(*inputs,**kwargs)
 
@@ -378,7 +379,14 @@ class Trainer(object):
                 'Test Time {batch_time.sum:.3f}s, ({batch_time.avg:.3f})\t'
                 'Loss {loss.avg:.8f}\n'.format(
                     batch_time=self.batch_time, loss=self.val_losses))
-            miou = self.evaluator.print_scores()
+            miou,allIoU = self.evaluator.print_scores()
+
+            if printallIoU:
+                with open("results/cityscapes/perf.csv","a") as text_file:
+                    model_id = self.configer.get("checkpoints","checkpoints_name")
+                    trial = self.configer.get("trial_nb")
+                    iteration = self.configer.get('iters')
+                    print("{},{},{},{}".format(model_id,trial,iteration,",".join(allIoU.astype("str"))),file=text_file)
 
         self.batch_time.reset()
         self.val_losses.reset()
@@ -416,8 +424,8 @@ class Trainer(object):
 
         return self.configer.get("performance")
 
-    def val(self, data_loader=None,retSimMap=False):
-        return self.__val(data_loader,retSimMap)
+    def val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=True):
+        return self.__val(data_loader,retSimMap,printallIoU=printallIoU,endEval=endEval)
 
     def summary(self):
         from lib.utils.summary import get_model_summary
