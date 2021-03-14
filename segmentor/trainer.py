@@ -39,6 +39,9 @@ from lib.utils.distributed import get_world_size, get_rank, is_distributed
 import cv2
 import sys
 
+from gradcam import GradCAM,GradCAMpp
+from guided_backprop import GuidedBackprop
+
 class NoSplit():
     def __init__(self,obj):
         self.obj = obj
@@ -266,7 +269,7 @@ class Trainer(object):
 
         self.configer.plus_one('epoch')
 
-    def __val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=False):
+    def __val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=False,gradcam=False):
         """
           Validation function during the train phase.
         """
@@ -274,6 +277,16 @@ class Trainer(object):
         self.pixel_loss.eval()
         start_time = time.time()
         replicas = self.evaluator.prepare_validaton()
+
+        if gradcam:
+            self.seg_net.stage4 = self.seg_net.module.backbone.stage4
+            netDic = {"type":"hrnet","layer_name":"stage4","arch":self.seg_net}
+            gradcam = GradCAM(netDic)
+            gradcampp = GradCAMpp(netDic)
+            self.seg_net.features = self.seg_net.module.backbone
+            guided = GuidedBackprop(self.seg_net)
+
+        model_id = self.configer.get("checkpoints","checkpoints_name")
 
         if self.configer.get("network","interp"):
             if endEval:
@@ -294,61 +307,80 @@ class Trainer(object):
             else:
                 (inputs, targets), batch_size = self.data_helper.prepare_data(data_dict)
 
-            with torch.no_grad():
+            if self.configer.get('dataset') == 'lip':
+                inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
+                outputs = self.seg_net(inputs)
+                outputs_ = self.module_runner.gather(outputs)
+                if isinstance(outputs_, (list, tuple)):
+                    outputs_ = outputs_[-1]
+                outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
+                outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
+                if outputs_rev.shape[1] == 20:
+                    outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
+                    outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
+                    outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
+                    outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
+                    outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
+                    outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
+                outputs_rev = torch.flip(outputs_rev, [3])
+                outputs = (outputs + outputs_rev) / 2.
+                self.evaluator.update_score(outputs, data_dict['meta'])
 
-                if self.configer.get('dataset') == 'lip':
-                    inputs = torch.cat([inputs[0], inputs_rev[0]], dim=0)
-                    outputs = self.seg_net(inputs)
-                    outputs_ = self.module_runner.gather(outputs)
-                    if isinstance(outputs_, (list, tuple)):
-                        outputs_ = outputs_[-1]
-                    outputs = outputs_[0:int(outputs_.size(0)/2),:,:,:].clone()
-                    outputs_rev = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),:,:,:].clone()
-                    if outputs_rev.shape[1] == 20:
-                        outputs_rev[:,14,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),15,:,:]
-                        outputs_rev[:,15,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),14,:,:]
-                        outputs_rev[:,16,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),17,:,:]
-                        outputs_rev[:,17,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),16,:,:]
-                        outputs_rev[:,18,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),19,:,:]
-                        outputs_rev[:,19,:,:] = outputs_[int(outputs_.size(0)/2):int(outputs_.size(0)),18,:,:]
-                    outputs_rev = torch.flip(outputs_rev, [3])
-                    outputs = (outputs + outputs_rev) / 2.
-                    self.evaluator.update_score(outputs, data_dict['meta'])
+            elif self.data_helper.conditions.diverse_size:
+                outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
 
-                elif self.data_helper.conditions.diverse_size:
-                    outputs = nn.parallel.parallel_apply(replicas[:len(inputs)], inputs)
+                for i in range(len(outputs)):
+                    loss = self.pixel_loss(outputs[i], targets[i])
+                    self.val_losses.update(loss.item(), 1)
+                    outputs_i = outputs[i]
+                    if isinstance(outputs_i, torch.Tensor):
+                        outputs_i = [outputs_i]
+                    self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
+            else:
 
-                    for i in range(len(outputs)):
-                        loss = self.pixel_loss(outputs[i], targets[i])
-                        self.val_losses.update(loss.item(), 1)
-                        outputs_i = outputs[i]
-                        if isinstance(outputs_i, torch.Tensor):
-                            outputs_i = [outputs_i]
-                        self.evaluator.update_score(outputs_i, data_dict['meta'][i:i+1])
-                else:
-
-                    kwargs = {"retSimMap":retSimMap}
-                    kwargs["interp_ratio"] = ratio
-
+                with torch.no_grad():
+                    kwargs = {"retSimMap":retSimMap,"interp_ratio":ratio}
                     outputs = self.seg_net(*inputs,**kwargs)
 
-                    if retSimMap:
-                        if j % 5 == 0:
-                            pred = torch.cat([out[1].cpu() for out in outputs],dim=0)
-                            attMaps = torch.cat([out[2].cpu() for out in outputs],dim=0)
-                            norm = torch.cat([out[3].cpu() for out in outputs],dim=0)
+                if retSimMap:
+                    if j % 5 == 0:
+                        pred = torch.cat([out[1].cpu() for out in outputs],dim=0)
+                        attMaps = torch.cat([out[2].cpu() for out in outputs],dim=0)
+                        norm = torch.cat([out[3].cpu() for out in outputs],dim=0)
 
-                            Log.info("Saving att maps at batch {} of validation".format(j))
-                            torch.save(attMaps,"results/cityscapes/simMaps{}.pt".format(j))
-                            torch.save(pred,"results/cityscapes/pred{}.pt".format(j))
-                            torch.save(norm,"results/cityscapes/norm{}.pt".format(j))
+                        Log.info("Saving att maps at batch {} of validation".format(j))
+                        torch.save(attMaps,"results/cityscapes/simMaps{}_model{}.pt".format(j,model_id))
+                        torch.save(pred,"results/cityscapes/pred{}_model{}.pt".format(j,model_id))
+                        torch.save(norm,"results/cityscapes/norm{}_model{}.pt".format(j,model_id))
 
-                            ori_img = [torch.tensor(np.array(dic["ori_img"])[:,:,::-1].copy()).permute(2,0,1).unsqueeze(0) for dic in data_dict["meta"]]
-                            ori_img = torch.cat(ori_img,dim=0)
-                            torch.save(ori_img,"results/cityscapes/img{}.pt".format(j))
+                        ori_img = [torch.tensor(np.array(dic["ori_img"])[:,:,::-1].copy()).permute(2,0,1).unsqueeze(0) for dic in data_dict["meta"]]
+                        ori_img = torch.cat(ori_img,dim=0)
+                        torch.save(ori_img,"results/cityscapes/img{}.pt".format(j))
 
-                        outputs = [out[:2] for out in outputs]
+                        if gradcam:
+                            allMask,allMask_pp,allMaps,allLab = [],[],[],[]
+                            inp = inputs[0]
+                            inp = torch.nn.functional.interpolate(inp,size=(768,1536))
 
+                            for i in range(len(inp)):
+                                print(inp[i:i+1].shape)
+                                mask,label = gradcam(inp[i:i+1])
+                                allMask.append(mask)
+                                #allMask_pp.append(gradcampp(inp[i:i+1],label))
+                                #allMaps.append(guided.generate_gradients(inp[i:i+1],label))
+                                allLab.append(label.unsqueeze(0))
+                            allMask = torch.cat(allMask,dim=0)
+                            #allMask_pp = torch.cat(allMask_pp,dim=0)
+                            #allMaps = torch.cat(allMaps,dim=0)
+                            allLab = torch.cat(allLab,dim=0)
+                            torch.save(allMask,"results/cityscapes/gradcam{}_model{}.pt".format(j,model_id))
+                            #torch.save(allMask_pp,"results/cityscapes/gradcam_pp{}_model{}.pt".format(j,model_id))
+                            #torch.save(allMaps,"results/cityscapes/guided{}_model{}.pt".format(j,model_id))
+                            torch.save(allLab,"results/cityscapes/chosenlab{}_model{}.pt".format(j,model_id))
+
+                    outputs = [out[:2] for out in outputs]
+
+                with torch.no_grad():
                     try:
                         loss = self.pixel_loss(
                             outputs, targets,
@@ -358,10 +390,10 @@ class Trainer(object):
                         print(len(outputs), len(targets))
 
 
-                    if not is_distributed():
-                        outputs = self.module_runner.gather(outputs)
-                    self.val_losses.update(loss.item(), batch_size)
-                    self.evaluator.update_score(outputs, data_dict['meta'])
+                if not is_distributed():
+                    outputs = self.module_runner.gather(outputs)
+                self.val_losses.update(loss.item(), batch_size)
+                self.evaluator.update_score(outputs, data_dict['meta'])
 
             self.batch_time.update(time.time() - start_time)
             start_time = time.time()
@@ -397,7 +429,7 @@ class Trainer(object):
 
     def train(self,trial):
         cudnn.benchmark = True
-        #self.__val()
+        #self.__val(retSimMap=True,endEval=True,gradcam=True)
         #if self.configer.get('network', 'resume') is not None:
         #    if self.configer.get('network', 'resume_val'):
         #        self.__val(data_loader=self.data_loader.get_valloader(dataset='val'))
@@ -424,8 +456,8 @@ class Trainer(object):
 
         return self.configer.get("performance")
 
-    def val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=True):
-        return self.__val(data_loader,retSimMap,printallIoU=printallIoU,endEval=endEval)
+    def val(self, data_loader=None,retSimMap=False,printallIoU=False,endEval=True,gradcam=True):
+        return self.__val(data_loader,retSimMap,printallIoU=printallIoU,endEval=endEval,gradcam=gradcam)
 
     def summary(self):
         from lib.utils.summary import get_model_summary

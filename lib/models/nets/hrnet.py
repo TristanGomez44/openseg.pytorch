@@ -96,7 +96,6 @@ class HRNet_W48_ASPOCR(nn.Module):
         out = F.interpolate(out, size=(x_.size(2), x_.size(3)), mode="bilinear", align_corners=True)
         return out_aux, out
 
-
 class HRNet_W48_OCR(nn.Module):
     def __init__(self, configer):
         super(HRNet_W48_OCR, self).__init__()
@@ -125,18 +124,12 @@ class HRNet_W48_OCR(nn.Module):
             nn.Conv2d(in_channels, self.num_classes, kernel_size=1, stride=1, padding=0, bias=True)
             )
 
+        self.rep_vec = self.configer.get("rep_vec")
 
     def forward(self, x_,retSimMap=False,interp_ratio=1):
 
-        x = self.backbone(x_)
-        _, _, h, w = x[0].size()
+        feats = self.backbone(x_)
 
-        feat1 = x[0]
-        feat2 = F.interpolate(x[1], size=(h, w), mode="bilinear", align_corners=True)
-        feat3 = F.interpolate(x[2], size=(h, w), mode="bilinear", align_corners=True)
-        feat4 = F.interpolate(x[3], size=(h, w), mode="bilinear", align_corners=True)
-
-        feats = torch.cat([feat1, feat2, feat3, feat4], 1)
         out_aux = self.aux_head(feats)
 
         feats = self.conv3x3(feats)

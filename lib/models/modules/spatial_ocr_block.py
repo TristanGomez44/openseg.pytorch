@@ -60,14 +60,19 @@ class SpatialGather_Module(nn.Module):
             return ocr_context
         else:
             if not self.repVec:
-                return self.regularCont(probs,feats)
+                norm = torch.sqrt(torch.pow(feats,2).sum(dim=1,keepdim=True))
+                ocr_context = self.regularCont(probs,feats)
+                if retSimMap:
+                    return ocr_context,probs,norm
+                else:
+                    return ocr_context
             else:
 
                 if interp_ratio > 0:
                     origFeat = feats.clone()
-                    ocr_context,simMaps,norm = self.repVecCont(probs,feats)
+                    ocr_context,simMaps = self.repVecCont(probs,feats)
                 else:
-                    ocr_context,simMaps,norm = None,None,None
+                    ocr_context,simMaps = None,None
 
                 if interp_ratio != 1:
                     reg_ocr_context = self.regularCont(probs,feats)
@@ -137,7 +142,7 @@ class SpatialGather_Module(nn.Module):
 
         ocr_context = torch.cat(allCont,dim=2)
 
-        return ocr_context,simMaps,norm
+        return ocr_context,simMaps
 
 class PyramidSpatialGather_Module(nn.Module):
     """

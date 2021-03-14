@@ -31,7 +31,7 @@ import sqlite3
 import numpy as np
 def run(configer,trial):
 
-    if configer.get('phase') == 'train':
+    if configer.get('phase') == 'train' and configer.get("network","optuna"):
         configer.update(["train","batch_size"],trial.suggest_int("batch_size",2*torch.cuda.device_count(),configer.get("max_batch_size"),step=1))
 
         configer.update(["lr","base_lr"],trial.suggest_float("base_lr",0.0001, 0.0019, step=0.0003))
@@ -54,10 +54,10 @@ def run(configer,trial):
         configer.get("network","loss_weights")["seg_loss"] = trial.suggest_float("seg_loss",.5, 2.0, step=0.5)
 
         if configer.get("network","use_teach"):
-            configer.add(["teacher_temp"],trial.suggest_float("teacher_temp", 1, 21, step=5))
-            configer.add(["teacher_interp"],trial.suggest_float("teacher_interp", 0.1, 1, step=0.1))
+            configer.update(["teacher_temp"],trial.suggest_float("teacher_temp", 1, 21, step=5))
+            configer.update(["teacher_interp"],trial.suggest_float("teacher_interp", 0.1, 1, step=0.1))
         else:
-            configer.add(["teacher_interp"],0)
+            configer.update(["teacher_interp"],0)
 
         lossType = trial.suggest_categorical("loss_type", ["fs_auxce_loss","fs_auxohemce_loss "])
         lossType = lossType.replace(" ","")
@@ -272,6 +272,16 @@ if __name__ == "__main__":
     parser.add_argument('--val_on_test', type=str2bool,default=False)
     parser.add_argument('--rep_vec', type=str2bool,default=True)
 
+    parser.add_argument('--gradcam', type=str2bool,default=True,dest='test:gradcam')
+
+    parser.add_argument('--pretr', type=str2bool,default=True,dest='network:pretr')
+    parser.add_argument('--only_back_pretr', type=str2bool,default=False,dest='network:only_back_pretr')
+
+    parser.add_argument('--optuna', type=str2bool,default=True,dest='network:optuna')
+
+    parser.add_argument('--teacher_temp', type=float,default=10,dest='teacher_temp')
+    parser.add_argument('--teacher_interp', type=float,default=0,dest='teacher_interp')
+
     parser.add_argument('REMAIN', nargs='*')
 
     args_parser = parser.parse_args()
@@ -368,4 +378,4 @@ if __name__ == "__main__":
 
     model.configer.add(["teacher_interp"],0)
     model.configer.add(["network","interp"],False)
-    model.val(model.data_loader.get_valloader(dataset='val'),retSimMap=True,printallIoU=True,endEval=True)
+    model.val(model.data_loader.get_valloader(dataset='val'),retSimMap=True,printallIoU=True,endEval=True,gradcam=configer.get("test","gradcam"))

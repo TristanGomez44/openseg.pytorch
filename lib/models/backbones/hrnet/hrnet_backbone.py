@@ -107,7 +107,7 @@ class Bottleneck(nn.Module):
 
 class HighResolutionModule(nn.Module):
     def __init__(self, num_branches, blocks, num_blocks, num_inchannels,
-                 num_channels, fuse_method, multi_scale_output=True, bn_type=None, bn_momentum=0.1):
+                 num_channels, fuse_method, multi_scale_output=True, bn_type=None, bn_momentum=0.1,last=False):
         super(HighResolutionModule, self).__init__()
         self._check_branches(
             num_branches, blocks, num_blocks, num_inchannels, num_channels)
@@ -122,6 +122,7 @@ class HighResolutionModule(nn.Module):
             num_branches, blocks, num_blocks, num_channels, bn_type=bn_type, bn_momentum=bn_momentum)
         self.fuse_layers = self._make_fuse_layers(bn_type=bn_type, bn_momentum=bn_momentum)
         self.relu = nn.ReLU(inplace=False)
+        self.last = last
 
     def _check_branches(self, num_branches, blocks, num_blocks,
                         num_inchannels, num_channels):
@@ -283,14 +284,26 @@ class HighResolutionModule(nn.Module):
                     y = y + self.fuse_layers[i][j](x[j])
             x_fuse.append(self.relu(y))
 
+        if self.last:
+            x_fuse = catFeat(x_fuse)
+
         return x_fuse
 
+def catFeat(x):
+    _, _, h, w = x[0].size()
+
+    feat1 = x[0]
+    feat2 = F.interpolate(x[1], size=(h, w), mode="bilinear", align_corners=True)
+    feat3 = F.interpolate(x[2], size=(h, w), mode="bilinear", align_corners=True)
+    feat4 = F.interpolate(x[3], size=(h, w), mode="bilinear", align_corners=True)
+
+    feats = torch.cat([feat1, feat2, feat3, feat4], 1)
+    return feats
 
 blocks_dict = {
     'BASIC': BasicBlock,
     'BOTTLENECK': Bottleneck
 }
-
 
 class HighResolutionNet(nn.Module):
 
@@ -350,7 +363,7 @@ class HighResolutionNet(nn.Module):
             pre_stage_channels, num_channels, bn_type=bn_type, bn_momentum=bn_momentum)
 
         self.stage4, pre_stage_channels = self._make_stage(
-            self.stage4_cfg, num_channels, multi_scale_output=True, bn_type=bn_type, bn_momentum=bn_momentum)
+            self.stage4_cfg, num_channels, multi_scale_output=True, bn_type=bn_type, bn_momentum=bn_momentum,last=True)
 
         if os.environ.get('keep_imagenet_head'):
             self.incre_modules, self.downsamp_modules, \
@@ -408,8 +421,8 @@ class HighResolutionNet(nn.Module):
         )
         return incre_modules, downsamp_modules, final_layer
 
-    def _make_transition_layer(
-            self, num_channels_pre_layer, num_channels_cur_layer, bn_type, bn_momentum):
+    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer, bn_type, bn_momentum):
+
         num_branches_cur = len(num_channels_cur_layer)
         num_branches_pre = len(num_channels_pre_layer)
 
@@ -478,7 +491,7 @@ class HighResolutionNet(nn.Module):
         return nn.Sequential(*layers)
 
     def _make_stage(self, layer_config, num_inchannels,
-                    multi_scale_output=True, bn_type=None, bn_momentum=0.1):
+                    multi_scale_output=True, bn_type=None, bn_momentum=0.1,last=False):
         num_modules = layer_config['NUM_MODULES']
         num_branches = layer_config['NUM_BRANCHES']
         num_blocks = layer_config['NUM_BLOCKS']
@@ -504,7 +517,8 @@ class HighResolutionNet(nn.Module):
                     fuse_method,
                     reset_multi_scale_output,
                     bn_type,
-                    bn_momentum
+                    bn_momentum,
+                    last=last and i == num_modules-1
                 )
             )
             num_inchannels = modules[-1].get_num_inchannels()
@@ -570,7 +584,6 @@ class HighResolutionNet(nn.Module):
             return x_list
 
         return y_list
-
 
 class HighResolutionNext(nn.Module):
 
