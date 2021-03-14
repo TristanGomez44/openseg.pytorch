@@ -72,7 +72,7 @@ class ModuleRunner(object):
 
         return DataParallelModel(net, gather_=self.configer.get('network', 'gathered'))
 
-    def load_net(self, net,make_parallel=True):
+    def load_net(self, net):
         net = self.to_device(net)
         net = self._make_parallel(net)
 
@@ -80,7 +80,7 @@ class ModuleRunner(object):
             net = net.to(torch.device('cpu' if self.configer.get('gpu') is None else 'cuda'))
 
         net.float()
-        if self.configer.get('network', 'resume') is not None:
+        if self.configer.get('network', 'resume') is not None and self.configer.get("network","pretr"):
             Log.info('Loading checkpoint from {}...'.format(self.configer.get('network', 'resume')))
             resume_dict = torch.load(self.configer.get('network', 'resume'))
             if 'state_dict' in resume_dict:
@@ -98,6 +98,14 @@ class ModuleRunner(object):
 
             if list(checkpoint_dict.keys())[0].startswith('module.'):
                 checkpoint_dict = {k[7:]: v for k, v in checkpoint_dict.items()}
+
+            if self.configer.get("network","only_back_pretr"):
+                keyToRemove = []
+                for key in checkpoint_dict.keys():
+                    if key.find("backbone") == -1:
+                        keyToRemove.append(key)
+                for key in keyToRemove:
+                    checkpoint_dict.pop(key)
 
             # load state_dict
             if hasattr(net, 'module'):
